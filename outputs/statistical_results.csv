@@ -1,0 +1,6 @@
+population,population_label,test,statistic,p_value,significant,responder_median,non_responder_median
+cd4_t_cell,CD4 T Cell,Mann-Whitney U,515276.0,0.013344,True,30.22,29.66
+b_cell,B Cell,Mann-Whitney U,459971.0,0.055702,False,9.43,9.79
+nk_cell,NK Cell,Mann-Whitney U,464546.0,0.121051,False,14.51,14.8
+monocyte,Monocyte,Mann-Whitney U,466510.0,0.16315,False,19.61,19.94
+cd8_t_cell,CD8 T Cell,Mann-Whitney U,478176.0,0.639086,False,24.73,24.6
