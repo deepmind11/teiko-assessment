@@ -350,18 +350,40 @@ for i, pop in enumerate(POPULATIONS):
         nonresp_data = cohort_df.loc[cohort_df["response"] == "no", pct_col]
 
         fig = go.Figure()
-        fig.add_trace(go.Box(
-            y=resp_data, name="Responder",
-            marker_color=C["teal"], fillcolor=C["teal"],
-            line_color=C["teal"], opacity=0.7,
-            boxmean=False,
-        ))
-        fig.add_trace(go.Box(
-            y=nonresp_data, name="Non-Responder",
-            marker_color=C["coral"], fillcolor=C["coral"],
-            line_color=C["coral"], opacity=0.7,
-            boxmean=False,
-        ))
+
+        def make_box_with_hover(data, name, color, x_pos):
+            q1 = data.quantile(0.25)
+            med = data.median()
+            q3 = data.quantile(0.75)
+            mn = data.min()
+            mx = data.max()
+
+            fig.add_trace(go.Box(
+                y=data, name=name,
+                marker_color=color, fillcolor=color,
+                line_color=color, opacity=0.7,
+                boxmean=False,
+                hoverinfo="skip",
+            ))
+            # Invisible scatter at median for clean hover
+            fig.add_trace(go.Scatter(
+                x=[name], y=[med],
+                mode="markers",
+                marker=dict(size=30, opacity=0),
+                showlegend=False,
+                hovertemplate=(
+                    f"<b>{name}</b><br>"
+                    f"Max: {mx:.1f}<br>"
+                    f"Q3: {q3:.1f}<br>"
+                    f"<span style='color:{color}'>Median: {med:.1f}</span><br>"
+                    f"Q1: {q1:.1f}<br>"
+                    f"Min: {mn:.1f}"
+                    f"<extra></extra>"
+                ),
+            ))
+
+        make_box_with_hover(resp_data, "Responder", C["teal"], 0)
+        make_box_with_hover(nonresp_data, "Non-Responder", C["coral"], 1)
 
         sig_color = C["teal"] if pval < 0.05 else C["muted"]
         sig_text = f"p = {pval:.4f} *" if pval < 0.05 else f"p = {pval:.4f}"
@@ -374,6 +396,11 @@ for i, pop in enumerate(POPULATIONS):
             showlegend=False,
             height=350,
             margin=dict(l=50, r=20, t=60, b=40),
+            hoverlabel=dict(
+                bgcolor=C["card"],
+                bordercolor=C["border"],
+                font=dict(color=C["text"], size=12),
+            ),
             yaxis=dict(
                 title="Relative Frequency (%)",
                 gridcolor=C["border"],
