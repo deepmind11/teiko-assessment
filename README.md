@@ -304,7 +304,7 @@ Benjamini-Hochberg FDR correction across the 5 cell populations:
 
 | Population | Resp. Mean | Non-Resp. Mean | p-value | BH-adjusted p | Significant |
 |------------|-----------|---------------|---------|---------------|-------------|
-| CD4 T Cell | 30.54% | 29.90% | 0.0045 | 0.023 | **Yes** |
+| CD4 T Cell | 30.54% | 29.90% | 0.0045 * | 0.023 * | **Yes** |
 | B Cell | 9.80% | 10.00% | 0.1627 | 0.274 | No |
 | NK Cell | 14.84% | 15.07% | 0.1644 | 0.274 | No |
 | Monocyte | 19.94% | 20.08% | 0.4524 | 0.566 | No |
@@ -337,7 +337,7 @@ the same immunological baseline, which is expected.
 
 | Population | Resp. Mean | Non-Resp. Mean | p-value | BH-adjusted p |
 |------------|-----------|---------------|---------|---------------|
-| CD4 T Cell | 30.75% | 29.72% | 0.0100 | **0.050** |
+| CD4 T Cell | 30.75% | 29.72% | 0.0100 * | 0.050 * |
 | B Cell | 9.75% | 10.11% | 0.1498 | 0.271 |
 | NK Cell | 14.66% | 15.09% | 0.1626 | 0.271 |
 | Monocyte | 20.05% | 20.18% | 0.6852 | 0.772 |
@@ -350,7 +350,7 @@ elevated CD4 T cell frequencies one week into treatment.
 
 | Population | Resp. Mean | Non-Resp. Mean | p-value | BH-adjusted p |
 |------------|-----------|---------------|---------|---------------|
-| B Cell | 9.56% | 10.11% | 0.0310 | 0.151 |
+| B Cell | 9.56% | 10.11% | 0.0310 * | 0.151 |
 | CD4 T Cell | 30.89% | 30.16% | 0.0603 | 0.151 |
 | NK Cell | 14.65% | 14.96% | 0.3129 | 0.522 |
 | CD8 T Cell | 25.03% | 24.93% | 0.7880 | 0.936 |
