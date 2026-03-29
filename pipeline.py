@@ -168,21 +168,11 @@ def part3_statistical_tests(df: pd.DataFrame) -> pd.DataFrame:
     return result_df.sort_values("p_value")
 
 
-def part3_boxplots(df: pd.DataFrame, stat_results: pd.DataFrame) -> None:
-    """Generate one boxplot per cell population comparing responders vs non-responders.
-
-    Uses per-subject averaged data to match the statistical tests.
-    """
-    pct_cols = [f"{pop}_pct" for pop in POPULATIONS]
-    df = (
-        df.groupby(["subject", "response"])[pct_cols]
-        .mean()
-        .reset_index()
-    )
-
+def _render_boxplot(df: pd.DataFrame, p_lookup: dict, out_dir: Path,
+                    subtitle: str = "") -> None:
+    """Render one boxplot per population and save to out_dir."""
+    out_dir.mkdir(parents=True, exist_ok=True)
     sns.set_theme(style="darkgrid")
-
-    p_lookup = dict(zip(stat_results["population"], stat_results["p_value"]))
 
     for pop in POPULATIONS:
         col = f"{pop}_pct"
@@ -212,13 +202,14 @@ def part3_boxplots(df: pd.DataFrame, stat_results: pd.DataFrame) -> None:
             order=["Responder", "Non-Responder"],
         )
 
-        ax.set_title(label, color=COLORS["text"], fontsize=14, fontweight="bold", pad=12)
+        title = f"{label}\n{subtitle}" if subtitle else label
+        ax.set_title(title, color=COLORS["text"], fontsize=14, fontweight="bold", pad=12)
         ax.set_xlabel("", color=COLORS["text_secondary"])
         ax.set_ylabel("Relative Frequency (%)", color=COLORS["text_secondary"], fontsize=10)
 
         # P-value annotation
         sig_color = COLORS["teal"] if pval < 0.05 else COLORS["text_secondary"]
-        sig_marker = " *" if pval < 0.05 else ""
+        sig_marker = " **" if pval < 0.05 else ""
         ax.text(
             0.5, 0.97, f"p = {pval:.4f}{sig_marker}",
             transform=ax.transAxes, ha="center", va="top",
@@ -233,10 +224,50 @@ def part3_boxplots(df: pd.DataFrame, stat_results: pd.DataFrame) -> None:
         ax.grid(axis="x", visible=False)
 
         fig.tight_layout()
-        fig.savefig(PLOT_DIR / f"{pop}.png", dpi=150, facecolor=COLORS["bg"])
+        fig.savefig(out_dir / f"{pop}.png", dpi=150, facecolor=COLORS["bg"])
         plt.close(fig)
 
-    print(f"  Saved 5 boxplots to {PLOT_DIR}/")
+
+def _run_welch_tests(df: pd.DataFrame) -> dict:
+    """Run Welch's t-test per population on the given dataframe. Returns p_lookup."""
+    from statsmodels.stats.multitest import multipletests
+
+    raw_pvals = []
+    pops = []
+    for pop in POPULATIONS:
+        col = f"{pop}_pct"
+        r = df.loc[df["response"] == "yes", col]
+        nr = df.loc[df["response"] == "no", col]
+        _, pval = stats.ttest_ind(r, nr, equal_var=False)
+        raw_pvals.append(pval)
+        pops.append(pop)
+
+    _, bh_pvals, _, _ = multipletests(raw_pvals, method="fdr_bh")
+    return dict(zip(pops, bh_pvals))
+
+
+def part3_boxplots(df: pd.DataFrame, stat_results: pd.DataFrame) -> None:
+    """Generate boxplots for all timepoints (averaged) and each individual timepoint."""
+    pct_cols = [f"{pop}_pct" for pop in POPULATIONS]
+
+    # All timepoints (per-subject averaged)
+    avg_df = (
+        df.groupby(["subject", "response"])[pct_cols]
+        .mean()
+        .reset_index()
+    )
+    p_all = dict(zip(stat_results["population"], stat_results["p_value"]))
+    _render_boxplot(avg_df, p_all, PLOT_DIR / "all_timepoints",
+                    subtitle="All Timepoints (per-subject avg)")
+
+    # Per-timepoint
+    for day in [0, 7, 14]:
+        day_df = df[df["day"] == day].copy()
+        p_day = _run_welch_tests(day_df)
+        _render_boxplot(day_df, p_day, PLOT_DIR / f"day_{day}",
+                        subtitle=f"Day {day}")
+
+    print(f"  Saved boxplots to {PLOT_DIR}/{{all_timepoints,day_0,day_7,day_14}}/")
 
 
 def part3_analysis(conn: sqlite3.Connection) -> pd.DataFrame:

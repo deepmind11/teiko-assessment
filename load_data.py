@@ -65,19 +65,7 @@ FROM samples sa
 JOIN enrollments e ON sa.enrollment_id = e.id
 JOIN subjects sub ON e.subject_id = sub.id;
 
--- Indexes for analytical query patterns
-CREATE INDEX IF NOT EXISTS idx_enrollments_subject
-    ON enrollments(subject_id);
-CREATE INDEX IF NOT EXISTS idx_enrollments_project
-    ON enrollments(project_id);
-CREATE INDEX IF NOT EXISTS idx_enrollments_treatment
-    ON enrollments(treatment);
-CREATE INDEX IF NOT EXISTS idx_samples_enrollment
-    ON samples(enrollment_id);
-CREATE INDEX IF NOT EXISTS idx_samples_sample_type
-    ON samples(sample_type);
-CREATE INDEX IF NOT EXISTS idx_samples_time
-    ON samples(enrollment_id, time_from_treatment_start);
+
 """
 
 
