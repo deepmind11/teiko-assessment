@@ -155,10 +155,6 @@ def load_summary():
 
 
 
-@st.cache_data
-def load_breakdown():
-    return pd.read_csv(OUTPUT_DIR / "cohort_breakdown.csv")
-
 
 @st.cache_data
 def load_db_metadata():
@@ -170,23 +166,24 @@ def load_db_metadata():
 
 
 @st.cache_data
-def load_responder_cohort():
-    """Load melanoma + miraclib + PBMC cohort with relative frequencies."""
+def load_cohort(condition: str, treatment: str, sample_type: str):
+    """Load a cohort with relative frequencies, filtered by condition/treatment/sample_type."""
     conn = get_connection()
     query = """
         SELECT sample, subject, response,
                time_from_treatment_start AS day,
                b_cell, cd8_t_cell, cd4_t_cell, nk_cell, monocyte
         FROM sample_view
-        WHERE condition = 'melanoma'
-          AND treatment = 'miraclib'
-          AND sample_type = 'PBMC'
+        WHERE condition = ?
+          AND treatment = ?
+          AND sample_type = ?
           AND response IS NOT NULL
     """
-    df = pd.read_sql(query, conn)
-    df["total_count"] = df[POPULATIONS].sum(axis=1)
-    for pop in POPULATIONS:
-        df[f"{pop}_pct"] = 100.0 * df[pop] / df["total_count"]
+    df = pd.read_sql(query, conn, params=[condition, treatment, sample_type])
+    if len(df) > 0:
+        df["total_count"] = df[POPULATIONS].sum(axis=1)
+        for pop in POPULATIONS:
+            df[f"{pop}_pct"] = 100.0 * df[pop] / df["total_count"]
     return df
 
 
@@ -196,7 +193,8 @@ def load_filter_options():
     projects = [r[0] for r in conn.execute("SELECT id FROM projects ORDER BY id").fetchall()]
     conditions = [r[0] for r in conn.execute("SELECT DISTINCT condition FROM sample_view ORDER BY condition").fetchall()]
     treatments = [r[0] for r in conn.execute("SELECT DISTINCT treatment FROM sample_view ORDER BY treatment").fetchall()]
-    return projects, conditions, treatments
+    sample_types = [r[0] for r in conn.execute("SELECT DISTINCT sample_type FROM sample_view ORDER BY sample_type").fetchall()]
+    return projects, conditions, treatments, sample_types
 
 
 # ---------------------------------------------------------------------------
@@ -252,35 +250,37 @@ with cols[3]:
 section_header("PART 2", "Relative Frequency Summary")
 
 summary_df = load_summary()
-projects_list, conditions_list, treatments_list = load_filter_options()
+projects_list, conditions_list, treatments_list, sample_types_list = load_filter_options()
+
+
+def filter_column(label: str, options: list, key_prefix: str,
+                  format_fn=None) -> list:
+    """Render a filter column with a Select All toggle and per-item checkboxes."""
+    st.markdown(f'<span style="font-size:12px;color:{C["text2"]};font-weight:600;">{label}</span>',
+                unsafe_allow_html=True)
+    all_on = st.checkbox("All", value=True, key=f"{key_prefix}_all")
+    selected = []
+    for opt in options:
+        display = format_fn(opt) if format_fn else str(opt)
+        if st.checkbox(display, value=all_on, key=f"{key_prefix}_{opt}"):
+            selected.append(opt)
+    return selected
+
 
 with st.expander("Filters", expanded=False):
     fc1, fc2, fc3, fc4, fc5 = st.columns(5)
     with fc1:
-        st.markdown(f'<span style="font-size:12px;color:{C["text2"]};font-weight:600;">Project</span>',
-                    unsafe_allow_html=True)
-        sel_projects = [p for p in projects_list
-                        if st.checkbox(p, value=True, key=f"proj_{p}")]
+        sel_projects = filter_column("Project", projects_list, "proj")
     with fc2:
-        st.markdown(f'<span style="font-size:12px;color:{C["text2"]};font-weight:600;">Condition</span>',
-                    unsafe_allow_html=True)
-        sel_conditions = [c for c in conditions_list
-                          if st.checkbox(c, value=True, key=f"cond_{c}")]
+        sel_conditions = filter_column("Condition", conditions_list, "cond")
     with fc3:
-        st.markdown(f'<span style="font-size:12px;color:{C["text2"]};font-weight:600;">Treatment</span>',
-                    unsafe_allow_html=True)
-        sel_treatments = [t for t in treatments_list
-                          if st.checkbox(t, value=True, key=f"treat_{t}")]
+        sel_treatments = filter_column("Treatment", treatments_list, "treat")
     with fc4:
-        st.markdown(f'<span style="font-size:12px;color:{C["text2"]};font-weight:600;">Timepoint</span>',
-                    unsafe_allow_html=True)
-        sel_timepoints = [tp for tp in [0, 7, 14]
-                          if st.checkbox(f"Day {tp}", value=True, key=f"tp_{tp}")]
+        sel_timepoints = filter_column("Timepoint", [0, 7, 14], "tp",
+                                       format_fn=lambda d: f"Day {d}")
     with fc5:
-        st.markdown(f'<span style="font-size:12px;color:{C["text2"]};font-weight:600;">Population</span>',
-                    unsafe_allow_html=True)
-        sel_populations = [pop for pop in POPULATIONS
-                           if st.checkbox(POPULATION_LABELS[pop], value=True, key=f"pop_{pop}")]
+        sel_populations = filter_column("Population", POPULATIONS, "pop",
+                                        format_fn=lambda p: POPULATION_LABELS[p])
 
 # Build filtered query
 conn = get_connection()
@@ -337,14 +337,24 @@ st.download_button(
 
 section_header("PART 3", "Responder vs. Non-Responder Analysis")
 
-st.markdown(
-    f'<div class="filter-banner">Melanoma &bull; Miraclib &bull; PBMC</div>',
-    unsafe_allow_html=True,
-)
+# --- Cohort filters ---
+coh1, coh2, coh3 = st.columns(3)
+with coh1:
+    p3_condition = st.selectbox("Condition", conditions_list,
+                                index=conditions_list.index("melanoma"),
+                                key="p3_cond")
+with coh2:
+    p3_treatment = st.selectbox("Treatment", treatments_list,
+                                index=treatments_list.index("miraclib"),
+                                key="p3_treat")
+with coh3:
+    p3_sample_type = st.selectbox("Sample Type", sample_types_list,
+                                  index=sample_types_list.index("PBMC"),
+                                  key="p3_stype")
 
-cohort_df = load_responder_cohort()
+cohort_df = load_cohort(p3_condition, p3_treatment, p3_sample_type)
 
-# --- Controls row ---
+# --- Statistical controls ---
 ctrl1, ctrl2, ctrl3 = st.columns(3)
 with ctrl1:
     test_type = st.selectbox(
@@ -371,11 +381,16 @@ with ctrl3:
 tp_map = {"Day 0": 0, "Day 7": 7, "Day 14": 14}
 pct_cols = [f"{pop}_pct" for pop in POPULATIONS]
 
-if timepoint_option in tp_map:
+has_cohort = len(cohort_df) > 0
+
+if not has_cohort:
+    st.warning("No samples found with response data for this combination.")
+
+if has_cohort and timepoint_option in tp_map:
     # Single timepoint: one independent sample per subject
     analysis_df = cohort_df[cohort_df["day"] == tp_map[timepoint_option]].copy()
     tp_label = timepoint_option
-else:
+elif has_cohort:
     # All timepoints: average across timepoints per subject
     analysis_df = (
         cohort_df.groupby(["subject", "response"])[pct_cols]
@@ -384,234 +399,225 @@ else:
     )
     tp_label = "All timepoints (per-subject average)"
 
-resp_vals = analysis_df[analysis_df["response"] == "yes"]
-nonresp_vals = analysis_df[analysis_df["response"] == "no"]
+resp_vals = analysis_df[analysis_df["response"] == "yes"] if has_cohort else pd.DataFrame()
+nonresp_vals = analysis_df[analysis_df["response"] == "no"] if has_cohort else pd.DataFrame()
 n_resp = len(resp_vals)
 n_nonresp = len(nonresp_vals)
 
-# --- Cohort summary cards ---
-cc1, cc2, cc3 = st.columns(3)
-with cc1:
-    unit = "subjects" if timepoint_option not in tp_map else "samples"
-    st.markdown(metric_card("Responders", f"{n_resp:,}"), unsafe_allow_html=True)
-with cc2:
-    st.markdown(metric_card("Non-Responders", f"{n_nonresp:,}", "coral"), unsafe_allow_html=True)
-with cc3:
-    st.markdown(metric_card("Timepoint", tp_label, "white"), unsafe_allow_html=True)
+if has_cohort:
+    # --- Cohort summary cards ---
+    cc1, cc2, cc3 = st.columns(3)
+    with cc1:
+        st.markdown(metric_card("Responders", f"{n_resp:,}"), unsafe_allow_html=True)
+    with cc2:
+        st.markdown(metric_card("Non-Responders", f"{n_nonresp:,}", "coral"), unsafe_allow_html=True)
+    with cc3:
+        st.markdown(metric_card("Timepoint", tp_label, "white"), unsafe_allow_html=True)
 
-# --- Run statistical tests across all 5 populations ---
-raw_pvals = []
-test_results = {}
-for pop in POPULATIONS:
-    col = f"{pop}_pct"
-    r = resp_vals[col].dropna()
-    nr = nonresp_vals[col].dropna()
+    # --- Run statistical tests across all 5 populations ---
+    raw_pvals = []
+    test_results = {}
+    for pop in POPULATIONS:
+        col = f"{pop}_pct"
+        r = resp_vals[col].dropna()
+        nr = nonresp_vals[col].dropna()
 
-    if test_type == "Mann-Whitney U":
-        stat_val, pval = stats.mannwhitneyu(r, nr, alternative="two-sided")
-    else:
-        stat_val, pval = stats.ttest_ind(r, nr, equal_var=False)
+        if test_type == "Mann-Whitney U":
+            stat_val, pval = stats.mannwhitneyu(r, nr, alternative="two-sided")
+        else:
+            stat_val, pval = stats.ttest_ind(r, nr, equal_var=False)
 
-    raw_pvals.append(pval)
-    test_results[pop] = {
-        "statistic": stat_val,
-        "p_raw": pval,
-        "resp_median": r.median(),
-        "nonresp_median": nr.median(),
-        "resp_mean": r.mean(),
-        "nonresp_mean": nr.mean(),
-    }
+        raw_pvals.append(pval)
+        test_results[pop] = {
+            "statistic": stat_val,
+            "p_raw": pval,
+            "resp_median": r.median(),
+            "nonresp_median": nr.median(),
+            "resp_mean": r.mean(),
+            "nonresp_mean": nr.mean(),
+        }
 
-# BH FDR correction
-_, bh_pvals, _, _ = multipletests(raw_pvals, alpha=fdr_threshold, method="fdr_bh")
-for i, pop in enumerate(POPULATIONS):
-    test_results[pop]["p_adj"] = bh_pvals[i]
-    test_results[pop]["significant"] = bh_pvals[i] < fdr_threshold
+    # BH FDR correction
+    _, bh_pvals, _, _ = multipletests(raw_pvals, alpha=fdr_threshold, method="fdr_bh")
+    for i, pop in enumerate(POPULATIONS):
+        test_results[pop]["p_adj"] = bh_pvals[i]
+        test_results[pop]["significant"] = bh_pvals[i] < fdr_threshold
 
-# --- Render 5 population sub-blocks ---
-for pop in POPULATIONS:
-    label = POPULATION_LABELS[pop]
-    res = test_results[pop]
-    pct_col = f"{pop}_pct"
-    pop_color = POP_COLORS[pop]
+    # --- Render 5 population sub-blocks ---
+    for pop in POPULATIONS:
+        label = POPULATION_LABELS[pop]
+        res = test_results[pop]
+        pct_col = f"{pop}_pct"
 
-    is_sig_bh = res["significant"]
-    is_sig_raw = res["p_raw"] < fdr_threshold
+        is_sig_bh = res["significant"]
+        is_sig_raw = res["p_raw"] < fdr_threshold
 
-    if is_sig_bh:
-        sig_color = C["teal"]
-        sig_star = " **"
-        badge_bg = C["teal"]
-        badge_text = "SIGNIFICANT"
-        badge_note = ""
-        border_color = C["teal"]
-    elif is_sig_raw:
-        sig_color = C["amber"]
-        sig_star = " *"
-        badge_bg = C["amber"]
-        badge_text = "SIGNIFICANT BEFORE CORRECTION"
-        badge_note = (
-            f'<div style="font-size:11px;color:{C["amber"]};margin-top:4px;">'
-            f'Raw p = {res["p_raw"]:.4f} is significant, but does not survive '
-            f'FDR correction (BH adj. p = {res["p_adj"]:.4f}).</div>'
-        )
-        border_color = C["amber"]
-    else:
-        sig_color = C["muted"]
-        sig_star = ""
-        badge_bg = C["border"]
-        badge_text = "NOT SIGNIFICANT"
-        badge_note = ""
-        border_color = C["border"]
+        if is_sig_bh:
+            sig_color = C["teal"]
+            sig_star = " **"
+            badge_bg = C["teal"]
+            badge_text = "SIGNIFICANT"
+            badge_note = ""
+            border_color = C["teal"]
+        elif is_sig_raw:
+            sig_color = C["amber"]
+            sig_star = " *"
+            badge_bg = C["amber"]
+            badge_text = "SIGNIFICANT BEFORE CORRECTION"
+            badge_note = (
+                f'<div style="font-size:11px;color:{C["amber"]};margin-top:4px;">'
+                f'Raw p = {res["p_raw"]:.4f} is significant, but does not survive '
+                f'FDR correction (BH adj. p = {res["p_adj"]:.4f}).</div>'
+            )
+            border_color = C["amber"]
+        else:
+            sig_color = C["muted"]
+            sig_star = ""
+            badge_bg = C["border"]
+            badge_text = "NOT SIGNIFICANT"
+            badge_note = ""
+            border_color = C["border"]
 
-    # Sub-block header with significance badge
-    st.markdown(
-        f'<div style="display:flex;align-items:center;gap:12px;margin-top:28px;margin-bottom:4px;'
-        f'padding-bottom:8px;border-bottom:2px solid {border_color};">'
-        f'<span style="font-size:17px;font-weight:700;color:{C["text"]};">{label}</span>'
-        f'<span style="font-size:10px;font-weight:700;letter-spacing:0.06em;'
-        f'background:{badge_bg};color:{C["bg"]};padding:3px 10px;border-radius:4px;">'
-        f'{badge_text}</span>'
-        f'</div>'
-        f'{badge_note}',
-        unsafe_allow_html=True,
-    )
-
-    plot_col, stats_col = st.columns([2, 1])
-
-    # --- Boxplot ---
-    with plot_col:
-        r_data = resp_vals[pct_col]
-        nr_data = nonresp_vals[pct_col]
-        fig = go.Figure()
-
-        for data, name, color in [
-            (r_data, "Responder", C["teal"]),
-            (nr_data, "Non-Responder", C["coral"]),
-        ]:
-            q1 = data.quantile(0.25)
-            med = data.median()
-            q3 = data.quantile(0.75)
-            mn, mx = data.min(), data.max()
-
-            fig.add_trace(go.Box(
-                y=data, name=name,
-                marker_color=color, fillcolor=color,
-                line_color=color, opacity=0.7,
-                boxmean=False, hoverinfo="skip",
-            ))
-            fig.add_trace(go.Scatter(
-                x=[name], y=[med],
-                mode="markers",
-                marker=dict(size=30, opacity=0),
-                showlegend=False,
-                hovertemplate=(
-                    f"<b>{name}</b><br>"
-                    f"Max: {mx:.1f}<br>"
-                    f"Q3: {q3:.1f}<br>"
-                    f"<span style='color:{color}'>Median: {med:.1f}</span><br>"
-                    f"Q1: {q1:.1f}<br>"
-                    f"Min: {mn:.1f}"
-                    f"<extra></extra>"
-                ),
-            ))
-
-        # Significance annotation on plot
-        annotations = []
-        if is_sig_raw or is_sig_bh:
-            star_text = "**" if is_sig_bh else "*"
-            y_max = max(r_data.max(), nr_data.max())
-            annotations.append(dict(
-                text=star_text,
-                x=0.5, y=y_max * 1.05,
-                xref="paper", yref="y",
-                showarrow=False,
-                font=dict(color=sig_color, size=24, family="Arial Black"),
-            ))
-            # Bracket line between the two boxes
-            annotations.append(dict(
-                text=f"p = {res['p_raw']:.4f}",
-                x=0.5, y=y_max * 1.10,
-                xref="paper", yref="y",
-                showarrow=False,
-                font=dict(color=sig_color, size=11, family="monospace"),
-            ))
-
-        fig.update_layout(
-            paper_bgcolor=C["bg"],
-            plot_bgcolor=C["card"],
-            font=dict(color=C["text2"], size=11),
-            showlegend=False,
-            height=320,
-            margin=dict(l=50, r=20, t=50, b=40),
-            hoverlabel=dict(
-                bgcolor=C["card"],
-                bordercolor=C["border"],
-                font=dict(color=C["text"], size=12),
-            ),
-            yaxis=dict(
-                title="Relative Frequency (%)",
-                gridcolor=C["border"],
-                zerolinecolor=C["border"],
-            ),
-            xaxis=dict(gridcolor=C["border"]),
-            annotations=annotations,
-        )
-        st.plotly_chart(fig, use_container_width=True)
-
-    # --- Stats panel ---
-    with stats_col:
-        center_label = "Median" if test_type == "Mann-Whitney U" else "Mean"
-        r_center = res["resp_median"] if test_type == "Mann-Whitney U" else res["resp_mean"]
-        nr_center = res["nonresp_median"] if test_type == "Mann-Whitney U" else res["nonresp_mean"]
-
+        # Sub-block header with significance badge
         st.markdown(
-            f'<div style="background:{C["card"]};border:1px solid {C["border"]};'
-            f'border-radius:8px;padding:16px;margin-top:4px;">'
-            # Test info
-            f'<div style="font-size:11px;color:{C["text2"]};font-weight:600;'
-            f'letter-spacing:0.04em;text-transform:uppercase;margin-bottom:12px;">'
-            f'{test_type}</div>'
-            # Statistic
-            f'<div style="display:flex;justify-content:space-between;margin-bottom:6px;">'
-            f'<span style="color:{C["text2"]};font-size:13px;">Statistic</span>'
-            f'<span style="color:{C["text"]};font-size:13px;font-weight:600;">'
-            f'{res["statistic"]:.2f}</span></div>'
-            # Raw p-value
-            f'<div style="display:flex;justify-content:space-between;margin-bottom:6px;">'
-            f'<span style="color:{C["text2"]};font-size:13px;">p-value (raw)</span>'
-            f'<span style="color:{C["text"]};font-size:13px;font-family:monospace;">'
-            f'{res["p_raw"]:.4f}</span></div>'
-            # Adjusted p-value
-            f'<div style="display:flex;justify-content:space-between;margin-bottom:12px;">'
-            f'<span style="color:{C["text2"]};font-size:13px;">p-value (BH adj.)</span>'
-            f'<span style="color:{sig_color};font-size:13px;font-weight:700;font-family:monospace;">'
-            f'{res["p_adj"]:.4f}{sig_star}</span></div>'
-            # Divider
-            f'<div style="border-top:1px solid {C["border"]};margin:8px 0;"></div>'
-            # Responder center
-            f'<div style="display:flex;justify-content:space-between;margin-bottom:6px;">'
-            f'<span style="color:{C["teal"]};font-size:13px;">Resp. {center_label}</span>'
-            f'<span style="color:{C["teal"]};font-size:13px;font-weight:600;">'
-            f'{r_center:.2f}%</span></div>'
-            # Non-responder center
-            f'<div style="display:flex;justify-content:space-between;">'
-            f'<span style="color:{C["coral"]};font-size:13px;">Non-Resp. {center_label}</span>'
-            f'<span style="color:{C["coral"]};font-size:13px;font-weight:600;">'
-            f'{nr_center:.2f}%</span></div>'
-            f'</div>',
+            f'<div style="display:flex;align-items:center;gap:12px;margin-top:28px;margin-bottom:4px;'
+            f'padding-bottom:8px;border-bottom:2px solid {border_color};">'
+            f'<span style="font-size:17px;font-weight:700;color:{C["text"]};">{label}</span>'
+            f'<span style="font-size:10px;font-weight:700;letter-spacing:0.06em;'
+            f'background:{badge_bg};color:{C["bg"]};padding:3px 10px;border-radius:4px;">'
+            f'{badge_text}</span>'
+            f'</div>'
+            f'{badge_note}',
             unsafe_allow_html=True,
         )
 
-# --- Methodology footnote ---
-st.markdown(
-    f'<div style="color:{C["muted"]};font-size:11px;margin-top:16px;">'
-    f'{test_type} (two-sided) with Benjamini-Hochberg FDR correction '
-    f'(threshold = {fdr_threshold:.2f}). '
-    f'Timepoint: {tp_label}. '
-    f'n = {n_resp} responders, {n_nonresp} non-responders.</div>',
-    unsafe_allow_html=True,
-)
+        plot_col, stats_col = st.columns([2, 1])
+
+        # --- Boxplot ---
+        with plot_col:
+            r_data = resp_vals[pct_col]
+            nr_data = nonresp_vals[pct_col]
+            fig = go.Figure()
+
+            for data, name, color in [
+                (r_data, "Responder", C["teal"]),
+                (nr_data, "Non-Responder", C["coral"]),
+            ]:
+                q1 = data.quantile(0.25)
+                med = data.median()
+                q3 = data.quantile(0.75)
+                mn, mx = data.min(), data.max()
+
+                fig.add_trace(go.Box(
+                    y=data, name=name,
+                    marker_color=color, fillcolor=color,
+                    line_color=color, opacity=0.7,
+                    boxmean=False, hoverinfo="skip",
+                ))
+                fig.add_trace(go.Scatter(
+                    x=[name], y=[med],
+                    mode="markers",
+                    marker=dict(size=30, opacity=0),
+                    showlegend=False,
+                    hovertemplate=(
+                        f"<b>{name}</b><br>"
+                        f"Max: {mx:.1f}<br>"
+                        f"Q3: {q3:.1f}<br>"
+                        f"<span style='color:{color}'>Median: {med:.1f}</span><br>"
+                        f"Q1: {q1:.1f}<br>"
+                        f"Min: {mn:.1f}"
+                        f"<extra></extra>"
+                    ),
+                ))
+
+            # Significance annotation on plot
+            annotations = []
+            if is_sig_raw or is_sig_bh:
+                star_text = "**" if is_sig_bh else "*"
+                y_max = max(r_data.max(), nr_data.max())
+                annotations.append(dict(
+                    text=star_text,
+                    x=0.5, y=y_max * 1.05,
+                    xref="paper", yref="y",
+                    showarrow=False,
+                    font=dict(color=sig_color, size=24, family="Arial Black"),
+                ))
+                annotations.append(dict(
+                    text=f"p = {res['p_raw']:.4f}",
+                    x=0.5, y=y_max * 1.10,
+                    xref="paper", yref="y",
+                    showarrow=False,
+                    font=dict(color=sig_color, size=11, family="monospace"),
+                ))
+
+            fig.update_layout(
+                paper_bgcolor=C["bg"],
+                plot_bgcolor=C["card"],
+                font=dict(color=C["text2"], size=11),
+                showlegend=False,
+                height=320,
+                margin=dict(l=50, r=20, t=50, b=40),
+                hoverlabel=dict(
+                    bgcolor=C["card"],
+                    bordercolor=C["border"],
+                    font=dict(color=C["text"], size=12),
+                ),
+                yaxis=dict(
+                    title="Relative Frequency (%)",
+                    gridcolor=C["border"],
+                    zerolinecolor=C["border"],
+                ),
+                xaxis=dict(gridcolor=C["border"]),
+                annotations=annotations,
+            )
+            st.plotly_chart(fig, use_container_width=True)
+
+        # --- Stats panel ---
+        with stats_col:
+            center_label = "Median" if test_type == "Mann-Whitney U" else "Mean"
+            r_center = res["resp_median"] if test_type == "Mann-Whitney U" else res["resp_mean"]
+            nr_center = res["nonresp_median"] if test_type == "Mann-Whitney U" else res["nonresp_mean"]
+
+            st.markdown(
+                f'<div style="background:{C["card"]};border:1px solid {C["border"]};'
+                f'border-radius:8px;padding:16px;margin-top:4px;">'
+                f'<div style="font-size:11px;color:{C["text2"]};font-weight:600;'
+                f'letter-spacing:0.04em;text-transform:uppercase;margin-bottom:12px;">'
+                f'{test_type}</div>'
+                f'<div style="display:flex;justify-content:space-between;margin-bottom:6px;">'
+                f'<span style="color:{C["text2"]};font-size:13px;">Statistic</span>'
+                f'<span style="color:{C["text"]};font-size:13px;font-weight:600;">'
+                f'{res["statistic"]:.2f}</span></div>'
+                f'<div style="display:flex;justify-content:space-between;margin-bottom:6px;">'
+                f'<span style="color:{C["text2"]};font-size:13px;">p-value (raw)</span>'
+                f'<span style="color:{C["text"]};font-size:13px;font-family:monospace;">'
+                f'{res["p_raw"]:.4f}</span></div>'
+                f'<div style="display:flex;justify-content:space-between;margin-bottom:12px;">'
+                f'<span style="color:{C["text2"]};font-size:13px;">p-value (BH adj.)</span>'
+                f'<span style="color:{sig_color};font-size:13px;font-weight:700;font-family:monospace;">'
+                f'{res["p_adj"]:.4f}{sig_star}</span></div>'
+                f'<div style="border-top:1px solid {C["border"]};margin:8px 0;"></div>'
+                f'<div style="display:flex;justify-content:space-between;margin-bottom:6px;">'
+                f'<span style="color:{C["teal"]};font-size:13px;">Resp. {center_label}</span>'
+                f'<span style="color:{C["teal"]};font-size:13px;font-weight:600;">'
+                f'{r_center:.2f}%</span></div>'
+                f'<div style="display:flex;justify-content:space-between;">'
+                f'<span style="color:{C["coral"]};font-size:13px;">Non-Resp. {center_label}</span>'
+                f'<span style="color:{C["coral"]};font-size:13px;font-weight:600;">'
+                f'{nr_center:.2f}%</span></div>'
+                f'</div>',
+                unsafe_allow_html=True,
+            )
+
+    # --- Methodology footnote ---
+    st.markdown(
+        f'<div style="color:{C["muted"]};font-size:11px;margin-top:16px;">'
+        f'{test_type} (two-sided) with Benjamini-Hochberg FDR correction '
+        f'(threshold = {fdr_threshold:.2f}). '
+        f'Timepoint: {tp_label}. '
+        f'n = {n_resp} responders, {n_nonresp} non-responders.</div>',
+        unsafe_allow_html=True,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -620,80 +626,107 @@ st.markdown(
 
 section_header("PART 4", "Cohort Breakdown")
 
-st.markdown(
-    f'<div class="filter-banner">Melanoma &bull; Miraclib &bull; PBMC &bull; Baseline (day 0)</div>',
-    unsafe_allow_html=True,
-)
+# --- Cohort filters ---
+p4c1, p4c2, p4c3, p4c4 = st.columns(4)
+with p4c1:
+    p4_condition = st.selectbox("Condition", conditions_list,
+                                index=conditions_list.index("melanoma"),
+                                key="p4_cond")
+with p4c2:
+    p4_treatment = st.selectbox("Treatment", treatments_list,
+                                index=treatments_list.index("miraclib"),
+                                key="p4_treat")
+with p4c3:
+    p4_sample_type = st.selectbox("Sample Type", sample_types_list,
+                                  index=sample_types_list.index("PBMC"),
+                                  key="p4_stype")
+with p4c4:
+    p4_timepoint = st.selectbox("Timepoint", [0, 7, 14],
+                                index=0,
+                                format_func=lambda d: f"Day {d}",
+                                key="p4_tp")
 
-breakdown_df = load_breakdown()
-
-total_baseline = breakdown_df.loc[breakdown_df["metric"] == "project", "count"].sum()
+# --- Query breakdown live ---
+conn = get_connection()
+p4_df = pd.read_sql("""
+    SELECT sample, subject, project, response, sex
+    FROM sample_view
+    WHERE condition = ?
+      AND treatment = ?
+      AND sample_type = ?
+      AND time_from_treatment_start = ?
+""", conn, params=[p4_condition, p4_treatment, p4_sample_type, p4_timepoint])
 
 st.markdown(f"""
 <div style="text-align: center; margin: 20px 0;">
     <div class="metric-card" style="display: inline-block; min-width: 240px;">
-        <div class="metric-label">Baseline Samples</div>
-        <div class="metric-value" style="font-size: 40px;">{total_baseline}</div>
+        <div class="metric-label">Samples</div>
+        <div class="metric-value" style="font-size: 40px;">{len(p4_df)}</div>
         <div style="color: {C['muted']}; font-size: 12px; margin-top: 4px;">
-            Melanoma, miraclib, PBMC, day 0
+            {p4_condition}, {p4_treatment}, {p4_sample_type}, day {p4_timepoint}
         </div>
     </div>
 </div>
 """, unsafe_allow_html=True)
 
-bc1, bc2, bc3 = st.columns(3)
+if len(p4_df) > 0:
+    bc1, bc2, bc3 = st.columns(3)
 
-# By Project
-proj_data = breakdown_df[breakdown_df["metric"] == "project"]
-with bc1:
-    st.markdown(f'<div class="metric-label" style="margin-bottom: 12px;">BY PROJECT</div>',
-                unsafe_allow_html=True)
-    for _, row in proj_data.iterrows():
-        st.markdown(
-            f'<div style="display: flex; justify-content: space-between; '
-            f'padding: 8px 12px; background: {C["card"]}; border: 1px solid {C["border"]}; '
-            f'border-radius: 6px; margin-bottom: 6px;">'
-            f'<span style="color: {C["text2"]};">{row["category"]}</span>'
-            f'<span style="color: {C["text"]}; font-weight: 700;">{row["count"]}</span>'
-            f'</div>',
-            unsafe_allow_html=True,
-        )
+    # By Project
+    by_project = p4_df.groupby("project").size().reset_index(name="count")
+    with bc1:
+        st.markdown(f'<div class="metric-label" style="margin-bottom: 12px;">BY PROJECT</div>',
+                    unsafe_allow_html=True)
+        for _, row in by_project.iterrows():
+            st.markdown(
+                f'<div style="display: flex; justify-content: space-between; '
+                f'padding: 8px 12px; background: {C["card"]}; border: 1px solid {C["border"]}; '
+                f'border-radius: 6px; margin-bottom: 6px;">'
+                f'<span style="color: {C["text2"]};">{row["project"]}</span>'
+                f'<span style="color: {C["text"]}; font-weight: 700;">{row["count"]}</span>'
+                f'</div>',
+                unsafe_allow_html=True,
+            )
 
-# By Response
-resp_data = breakdown_df[breakdown_df["metric"] == "response"]
-with bc2:
-    st.markdown(f'<div class="metric-label" style="margin-bottom: 12px;">BY RESPONSE</div>',
-                unsafe_allow_html=True)
-    for _, row in resp_data.iterrows():
-        is_yes = row["category"] == "yes"
-        color = C["teal"] if is_yes else C["coral"]
-        label = "Responders" if is_yes else "Non-Responders"
-        st.markdown(
-            f'<div style="display: flex; justify-content: space-between; '
-            f'padding: 8px 12px; background: {C["card"]}; border-left: 3px solid {color}; '
-            f'border-radius: 6px; margin-bottom: 6px;">'
-            f'<span style="color: {C["text2"]};">{label}</span>'
-            f'<span style="color: {color}; font-weight: 700;">{row["count"]}</span>'
-            f'</div>',
-            unsafe_allow_html=True,
-        )
+    # By Response
+    by_response = p4_df.groupby("response").agg(
+        count=("subject", "nunique")).reset_index()
+    with bc2:
+        st.markdown(f'<div class="metric-label" style="margin-bottom: 12px;">BY RESPONSE</div>',
+                    unsafe_allow_html=True)
+        for _, row in by_response.iterrows():
+            is_yes = row["response"] == "yes"
+            color = C["teal"] if is_yes else C["coral"]
+            label = "Responders" if is_yes else "Non-Responders"
+            st.markdown(
+                f'<div style="display: flex; justify-content: space-between; '
+                f'padding: 8px 12px; background: {C["card"]}; border-left: 3px solid {color}; '
+                f'border-radius: 6px; margin-bottom: 6px;">'
+                f'<span style="color: {C["text2"]};">{label}</span>'
+                f'<span style="color: {color}; font-weight: 700;">{row["count"]}</span>'
+                f'</div>',
+                unsafe_allow_html=True,
+            )
 
-# By Sex
-sex_data = breakdown_df[breakdown_df["metric"] == "sex"]
-with bc3:
-    st.markdown(f'<div class="metric-label" style="margin-bottom: 12px;">BY SEX</div>',
-                unsafe_allow_html=True)
-    for _, row in sex_data.iterrows():
-        label = "Male" if row["category"] == "M" else "Female"
-        st.markdown(
-            f'<div style="display: flex; justify-content: space-between; '
-            f'padding: 8px 12px; background: {C["card"]}; border: 1px solid {C["border"]}; '
-            f'border-radius: 6px; margin-bottom: 6px;">'
-            f'<span style="color: {C["text2"]};">{label}</span>'
-            f'<span style="color: {C["text"]}; font-weight: 700;">{row["count"]}</span>'
-            f'</div>',
-            unsafe_allow_html=True,
-        )
+    # By Sex
+    by_sex = p4_df.groupby("sex").agg(
+        count=("subject", "nunique")).reset_index()
+    with bc3:
+        st.markdown(f'<div class="metric-label" style="margin-bottom: 12px;">BY SEX</div>',
+                    unsafe_allow_html=True)
+        for _, row in by_sex.iterrows():
+            label = "Male" if row["sex"] == "M" else "Female"
+            st.markdown(
+                f'<div style="display: flex; justify-content: space-between; '
+                f'padding: 8px 12px; background: {C["card"]}; border: 1px solid {C["border"]}; '
+                f'border-radius: 6px; margin-bottom: 6px;">'
+                f'<span style="color: {C["text2"]};">{label}</span>'
+                f'<span style="color: {C["text"]}; font-weight: 700;">{row["count"]}</span>'
+                f'</div>',
+                unsafe_allow_html=True,
+            )
+else:
+    st.warning("No samples found for this combination.")
 
 
 # ---------------------------------------------------------------------------
