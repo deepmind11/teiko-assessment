@@ -310,6 +310,8 @@ Benjamini-Hochberg FDR correction across the 5 cell populations:
 | Monocyte | 19.94% | 20.08% | 0.4524 | 0.566 | No |
 | CD8 T Cell | 24.88% | 24.94% | 0.7666 | 0.767 | No |
 
+![All Timepoints](outputs/plots/all_timepoints_combined.png)
+
 CD4 T Cell is the only population that reaches significance after FDR correction
 (BH-adjusted p = 0.023). Responders have a higher mean CD4 T cell frequency than
 non-responders. To understand when this difference emerges, I examined each timepoint
@@ -330,6 +332,8 @@ K-S normality tests confirm normal distributions at each timepoint (all p > 0.05
 | CD4 T Cell | 29.98% | 29.83% | 0.7085 | 0.875 |
 | NK Cell | 15.22% | 15.17% | 0.8751 | 0.875 |
 
+![Day 0](outputs/plots/day_0_combined.png)
+
 No significant differences at baseline. Responders and non-responders start from
 the same immunological baseline, which is expected.
 
@@ -343,6 +347,8 @@ the same immunological baseline, which is expected.
 | Monocyte | 20.05% | 20.18% | 0.6852 | 0.772 |
 | CD8 T Cell | 24.80% | 24.90% | 0.7720 | 0.772 |
 
+![Day 7](outputs/plots/day_7_combined.png)
+
 CD4 T Cell is significant at day 7 (BH-adjusted p = 0.050). Responders show
 elevated CD4 T cell frequencies one week into treatment.
 
@@ -355,6 +361,8 @@ elevated CD4 T cell frequencies one week into treatment.
 | NK Cell | 14.65% | 14.96% | 0.3129 | 0.522 |
 | CD8 T Cell | 25.03% | 24.93% | 0.7880 | 0.936 |
 | Monocyte | 19.87% | 19.85% | 0.9360 | 0.936 |
+
+![Day 14](outputs/plots/day_14_combined.png)
 
 B Cell shows the strongest signal at day 14 (uncorrected p = 0.031) but does not
 survive FDR correction. CD4 T Cell remains a trend (uncorrected p = 0.060).

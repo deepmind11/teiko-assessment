@@ -228,8 +228,96 @@ def _render_boxplot(df: pd.DataFrame, p_lookup: dict, out_dir: Path,
         plt.close(fig)
 
 
-def _run_welch_tests(df: pd.DataFrame) -> dict:
-    """Run Welch's t-test per population on the given dataframe. Returns p_lookup."""
+def _render_combined_boxplot(df: pd.DataFrame, raw_p: dict, bh_p: dict,
+                             out_path: Path, title: str = "") -> None:
+    """Render all 5 populations in a single row of subplots with three-tier significance."""
+    sns.set_theme(style="darkgrid")
+    fig, axes = plt.subplots(1, 5, figsize=(22, 5.5))
+    fig.patch.set_facecolor(COLORS["bg"])
+
+    if title:
+        fig.suptitle(title, color=COLORS["text"], fontsize=18, fontweight="bold",
+                     y=1.02)
+
+    palette = {"Responder": COLORS["teal"], "Non-Responder": COLORS["coral"]}
+
+    for ax, pop in zip(axes, POPULATIONS):
+        col = f"{pop}_pct"
+        label = POPULATION_LABELS[pop]
+        raw_pval = raw_p[pop]
+        bh_pval = bh_p[pop]
+
+        ax.set_facecolor(COLORS["card"])
+
+        plot_df = df[["response", col]].copy()
+        plot_df["response"] = plot_df["response"].map(
+            {"yes": "Responder", "no": "Non-Responder"}
+        )
+
+        sns.boxplot(
+            data=plot_df, x="response", y=col, hue="response",
+            palette=palette, width=0.5, linewidth=1.2,
+            fliersize=3, ax=ax, legend=False,
+            order=["Responder", "Non-Responder"],
+        )
+        sns.stripplot(
+            data=plot_df, x="response", y=col,
+            color=COLORS["text"], alpha=0.15, size=2, jitter=True, ax=ax,
+            order=["Responder", "Non-Responder"],
+        )
+
+        ax.set_title(label, color=COLORS["text"], fontsize=15, fontweight="bold",
+                     pad=10)
+        ax.set_xlabel("")
+        ax.set_ylabel("Relative Freq. (%)" if pop == POPULATIONS[0] else "",
+                      color=COLORS["text_secondary"], fontsize=11)
+
+        # Three-tier significance coloring
+        if bh_pval < 0.05:
+            sig_color = COLORS["teal"]
+            sig_marker = " **"
+        elif raw_pval < 0.05:
+            sig_color = "#FBBF24"  # amber
+            sig_marker = " *"
+        else:
+            sig_color = COLORS["text_secondary"]
+            sig_marker = ""
+
+        ax.text(
+            0.5, 0.97, f"BH p = {bh_pval:.4f}{sig_marker}",
+            transform=ax.transAxes, ha="center", va="top",
+            fontsize=11, color=sig_color, fontweight="bold",
+        )
+
+        ax.tick_params(colors=COLORS["text_secondary"], labelsize=10)
+        ax.yaxis.set_major_formatter(mticker.FormatStrFormatter("%.1f"))
+        for spine in ax.spines.values():
+            spine.set_color(COLORS["grid"])
+        ax.grid(axis="y", color=COLORS["grid"], alpha=0.3)
+        ax.grid(axis="x", visible=False)
+
+    # Legend for significance tiers
+    from matplotlib.lines import Line2D
+    legend_elements = [
+        Line2D([0], [0], marker="s", color="none", markerfacecolor=COLORS["teal"],
+               markersize=8, label="** Significant (BH-adjusted p < 0.05)"),
+        Line2D([0], [0], marker="s", color="none", markerfacecolor="#FBBF24",
+               markersize=8, label="*  Significant before correction only"),
+        Line2D([0], [0], marker="s", color="none", markerfacecolor=COLORS["text_secondary"],
+               markersize=8, label="   Not significant"),
+    ]
+    fig.legend(handles=legend_elements, loc="lower center", ncol=3,
+               frameon=False, fontsize=11,
+               labelcolor=COLORS["text_secondary"],
+               bbox_to_anchor=(0.5, -0.06), columnspacing=4.0)
+
+    fig.tight_layout()
+    fig.savefig(out_path, dpi=150, facecolor=COLORS["bg"], bbox_inches="tight")
+    plt.close(fig)
+
+
+def _run_welch_tests(df: pd.DataFrame) -> tuple[dict, dict]:
+    """Run Welch's t-test per population. Returns (raw_p_lookup, bh_p_lookup)."""
     from statsmodels.stats.multitest import multipletests
 
     raw_pvals = []
@@ -243,7 +331,7 @@ def _run_welch_tests(df: pd.DataFrame) -> dict:
         pops.append(pop)
 
     _, bh_pvals, _, _ = multipletests(raw_pvals, method="fdr_bh")
-    return dict(zip(pops, bh_pvals))
+    return dict(zip(pops, raw_pvals)), dict(zip(pops, bh_pvals))
 
 
 def part3_boxplots(df: pd.DataFrame, stat_results: pd.DataFrame) -> None:
@@ -256,16 +344,23 @@ def part3_boxplots(df: pd.DataFrame, stat_results: pd.DataFrame) -> None:
         .mean()
         .reset_index()
     )
-    p_all = dict(zip(stat_results["population"], stat_results["p_value"]))
-    _render_boxplot(avg_df, p_all, PLOT_DIR / "all_timepoints",
+    raw_all = dict(zip(stat_results["population"], stat_results["p_value"]))
+    bh_all = dict(zip(stat_results["population"], stat_results["p_value_bh"]))
+    _render_boxplot(avg_df, raw_all, PLOT_DIR / "all_timepoints",
                     subtitle="All Timepoints (per-subject avg)")
+    _render_combined_boxplot(avg_df, raw_all, bh_all,
+                             PLOT_DIR / "all_timepoints_combined.png",
+                             title="All Timepoints (per-subject avg)")
 
     # Per-timepoint
     for day in [0, 7, 14]:
         day_df = df[df["day"] == day].copy()
-        p_day = _run_welch_tests(day_df)
-        _render_boxplot(day_df, p_day, PLOT_DIR / f"day_{day}",
+        raw_day, bh_day = _run_welch_tests(day_df)
+        _render_boxplot(day_df, bh_day, PLOT_DIR / f"day_{day}",
                         subtitle=f"Day {day}")
+        _render_combined_boxplot(day_df, raw_day, bh_day,
+                                 PLOT_DIR / f"day_{day}_combined.png",
+                                 title=f"Day {day}")
 
     print(f"  Saved boxplots to {PLOT_DIR}/{{all_timepoints,day_0,day_7,day_14}}/")
 
