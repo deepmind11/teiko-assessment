@@ -317,7 +317,7 @@ def _render_combined_boxplot(df: pd.DataFrame, raw_p: dict, bh_p: dict,
                markersize=8, label="   Not significant"),
     ]
     fig.legend(handles=legend_elements, loc="lower center", ncol=3,
-               frameon=False, fontsize=11,
+               frameon=False, fontsize=12,
                labelcolor=COLORS["text_secondary"],
                bbox_to_anchor=(0.5, -0.06), columnspacing=4.0)
 
