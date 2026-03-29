@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """dashboard.py — Interactive Streamlit dashboard for the Teiknical assessment.
 
 Displays results from Parts 2-4. Reads from the SQLite database created by
@@ -10,6 +11,8 @@ from pathlib import Path
 import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
+from scipy import stats
+from statsmodels.stats.multitest import multipletests
 
 DB_PATH = Path("cell_counts.db")
 OUTPUT_DIR = Path("outputs")
@@ -151,10 +154,6 @@ def load_summary():
     return pd.read_csv(OUTPUT_DIR / "summary.csv")
 
 
-@st.cache_data
-def load_stats():
-    return pd.read_csv(OUTPUT_DIR / "statistical_results.csv")
-
 
 @st.cache_data
 def load_breakdown():
@@ -175,7 +174,9 @@ def load_responder_cohort():
     """Load melanoma + miraclib + PBMC cohort with relative frequencies."""
     conn = get_connection()
     query = """
-        SELECT sample, response, b_cell, cd8_t_cell, cd4_t_cell, nk_cell, monocyte
+        SELECT sample, subject, response,
+               time_from_treatment_start AS day,
+               b_cell, cd8_t_cell, cd4_t_cell, nk_cell, monocyte
         FROM sample_view
         WHERE condition = 'melanoma'
           AND treatment = 'miraclib'
@@ -254,15 +255,32 @@ summary_df = load_summary()
 projects_list, conditions_list, treatments_list = load_filter_options()
 
 with st.expander("Filters", expanded=False):
-    fc1, fc2, fc3, fc4 = st.columns(4)
+    fc1, fc2, fc3, fc4, fc5 = st.columns(5)
     with fc1:
-        sel_projects = st.multiselect("Project", projects_list, default=projects_list)
+        st.markdown(f'<span style="font-size:12px;color:{C["text2"]};font-weight:600;">Project</span>',
+                    unsafe_allow_html=True)
+        sel_projects = [p for p in projects_list
+                        if st.checkbox(p, value=True, key=f"proj_{p}")]
     with fc2:
-        sel_conditions = st.multiselect("Condition", conditions_list, default=conditions_list)
+        st.markdown(f'<span style="font-size:12px;color:{C["text2"]};font-weight:600;">Condition</span>',
+                    unsafe_allow_html=True)
+        sel_conditions = [c for c in conditions_list
+                          if st.checkbox(c, value=True, key=f"cond_{c}")]
     with fc3:
-        sel_treatments = st.multiselect("Treatment", treatments_list, default=treatments_list)
+        st.markdown(f'<span style="font-size:12px;color:{C["text2"]};font-weight:600;">Treatment</span>',
+                    unsafe_allow_html=True)
+        sel_treatments = [t for t in treatments_list
+                          if st.checkbox(t, value=True, key=f"treat_{t}")]
     with fc4:
-        sel_timepoints = st.multiselect("Timepoint", [0, 7, 14], default=[0, 7, 14])
+        st.markdown(f'<span style="font-size:12px;color:{C["text2"]};font-weight:600;">Timepoint</span>',
+                    unsafe_allow_html=True)
+        sel_timepoints = [tp for tp in [0, 7, 14]
+                          if st.checkbox(f"Day {tp}", value=True, key=f"tp_{tp}")]
+    with fc5:
+        st.markdown(f'<span style="font-size:12px;color:{C["text2"]};font-weight:600;">Population</span>',
+                    unsafe_allow_html=True)
+        sel_populations = [pop for pop in POPULATIONS
+                           if st.checkbox(POPULATION_LABELS[pop], value=True, key=f"pop_{pop}")]
 
 # Build filtered query
 conn = get_connection()
@@ -280,7 +298,10 @@ filtered_query = """
     tp=",".join(str(t) for t in sel_timepoints) if sel_timepoints else "-1",
 )
 filtered_samples = pd.read_sql(filtered_query, conn)["sample"].tolist()
-display_df = summary_df[summary_df["sample"].isin(filtered_samples)].copy()
+display_df = summary_df[
+    summary_df["sample"].isin(filtered_samples)
+    & summary_df["population"].isin(sel_populations)
+].copy()
 
 st.markdown(
     f'<span style="color: {C["text2"]}; font-size: 13px;">'
@@ -301,11 +322,11 @@ st.dataframe(
     },
 )
 
-csv_data = summary_df.to_csv(index=False)
+csv_data = display_df.to_csv(index=False)
 st.download_button(
-    "Download Full CSV (all samples)",
+    f"Download CSV ({display_df['sample'].nunique():,} samples, {len(display_df):,} rows)",
     data=csv_data,
-    file_name="summary.csv",
+    file_name="summary_filtered.csv",
     mime="text/csv",
 )
 
@@ -317,55 +338,168 @@ st.download_button(
 section_header("PART 3", "Responder vs. Non-Responder Analysis")
 
 st.markdown(
-    f'<div class="filter-banner">Melanoma &bull; Miraclib &bull; PBMC &bull; All timepoints</div>',
+    f'<div class="filter-banner">Melanoma &bull; Miraclib &bull; PBMC</div>',
     unsafe_allow_html=True,
 )
 
 cohort_df = load_responder_cohort()
-stat_df = load_stats()
 
-n_resp = (cohort_df["response"] == "yes").sum()
-n_nonresp = (cohort_df["response"] == "no").sum()
+# --- Controls row ---
+ctrl1, ctrl2, ctrl3 = st.columns(3)
+with ctrl1:
+    test_type = st.selectbox(
+        "Statistical Test",
+        ["Welch's t-test", "Mann-Whitney U"],
+        index=0,
+        key="stat_test",
+    )
+with ctrl2:
+    timepoint_option = st.selectbox(
+        "Timepoint",
+        ["All (per-subject average)", "Day 0", "Day 7", "Day 14"],
+        index=0,
+        key="stat_tp",
+    )
+with ctrl3:
+    fdr_threshold = st.slider(
+        "FDR Threshold",
+        min_value=0.01, max_value=0.20, value=0.05, step=0.01,
+        key="fdr_thresh",
+    )
 
+# --- Prepare data based on timepoint selection ---
+tp_map = {"Day 0": 0, "Day 7": 7, "Day 14": 14}
+pct_cols = [f"{pop}_pct" for pop in POPULATIONS]
+
+if timepoint_option in tp_map:
+    # Single timepoint: one independent sample per subject
+    analysis_df = cohort_df[cohort_df["day"] == tp_map[timepoint_option]].copy()
+    tp_label = timepoint_option
+else:
+    # All timepoints: average across timepoints per subject
+    analysis_df = (
+        cohort_df.groupby(["subject", "response"])[pct_cols]
+        .mean()
+        .reset_index()
+    )
+    tp_label = "All timepoints (per-subject average)"
+
+resp_vals = analysis_df[analysis_df["response"] == "yes"]
+nonresp_vals = analysis_df[analysis_df["response"] == "no"]
+n_resp = len(resp_vals)
+n_nonresp = len(nonresp_vals)
+
+# --- Cohort summary cards ---
 cc1, cc2, cc3 = st.columns(3)
 with cc1:
+    unit = "subjects" if timepoint_option not in tp_map else "samples"
     st.markdown(metric_card("Responders", f"{n_resp:,}"), unsafe_allow_html=True)
 with cc2:
     st.markdown(metric_card("Non-Responders", f"{n_nonresp:,}", "coral"), unsafe_allow_html=True)
 with cc3:
-    st.markdown(metric_card("Total Samples", f"{len(cohort_df):,}", "white"), unsafe_allow_html=True)
+    st.markdown(metric_card("Timepoint", tp_label, "white"), unsafe_allow_html=True)
 
-# Boxplots using Plotly
-p_lookup = dict(zip(stat_df["population"], stat_df["p_value"]))
+# --- Run statistical tests across all 5 populations ---
+raw_pvals = []
+test_results = {}
+for pop in POPULATIONS:
+    col = f"{pop}_pct"
+    r = resp_vals[col].dropna()
+    nr = nonresp_vals[col].dropna()
 
-box_cols = st.columns(3)
+    if test_type == "Mann-Whitney U":
+        stat_val, pval = stats.mannwhitneyu(r, nr, alternative="two-sided")
+    else:
+        stat_val, pval = stats.ttest_ind(r, nr, equal_var=False)
+
+    raw_pvals.append(pval)
+    test_results[pop] = {
+        "statistic": stat_val,
+        "p_raw": pval,
+        "resp_median": r.median(),
+        "nonresp_median": nr.median(),
+        "resp_mean": r.mean(),
+        "nonresp_mean": nr.mean(),
+    }
+
+# BH FDR correction
+_, bh_pvals, _, _ = multipletests(raw_pvals, alpha=fdr_threshold, method="fdr_bh")
 for i, pop in enumerate(POPULATIONS):
-    col_idx = i % 3
-    with box_cols[col_idx]:
-        pct_col = f"{pop}_pct"
-        label = POPULATION_LABELS[pop]
-        pval = p_lookup.get(pop, 1.0)
+    test_results[pop]["p_adj"] = bh_pvals[i]
+    test_results[pop]["significant"] = bh_pvals[i] < fdr_threshold
 
-        resp_data = cohort_df.loc[cohort_df["response"] == "yes", pct_col]
-        nonresp_data = cohort_df.loc[cohort_df["response"] == "no", pct_col]
+# --- Render 5 population sub-blocks ---
+for pop in POPULATIONS:
+    label = POPULATION_LABELS[pop]
+    res = test_results[pop]
+    pct_col = f"{pop}_pct"
+    pop_color = POP_COLORS[pop]
 
+    is_sig_bh = res["significant"]
+    is_sig_raw = res["p_raw"] < fdr_threshold
+
+    if is_sig_bh:
+        sig_color = C["teal"]
+        sig_star = " **"
+        badge_bg = C["teal"]
+        badge_text = "SIGNIFICANT"
+        badge_note = ""
+        border_color = C["teal"]
+    elif is_sig_raw:
+        sig_color = C["amber"]
+        sig_star = " *"
+        badge_bg = C["amber"]
+        badge_text = "SIGNIFICANT BEFORE CORRECTION"
+        badge_note = (
+            f'<div style="font-size:11px;color:{C["amber"]};margin-top:4px;">'
+            f'Raw p = {res["p_raw"]:.4f} is significant, but does not survive '
+            f'FDR correction (BH adj. p = {res["p_adj"]:.4f}).</div>'
+        )
+        border_color = C["amber"]
+    else:
+        sig_color = C["muted"]
+        sig_star = ""
+        badge_bg = C["border"]
+        badge_text = "NOT SIGNIFICANT"
+        badge_note = ""
+        border_color = C["border"]
+
+    # Sub-block header with significance badge
+    st.markdown(
+        f'<div style="display:flex;align-items:center;gap:12px;margin-top:28px;margin-bottom:4px;'
+        f'padding-bottom:8px;border-bottom:2px solid {border_color};">'
+        f'<span style="font-size:17px;font-weight:700;color:{C["text"]};">{label}</span>'
+        f'<span style="font-size:10px;font-weight:700;letter-spacing:0.06em;'
+        f'background:{badge_bg};color:{C["bg"]};padding:3px 10px;border-radius:4px;">'
+        f'{badge_text}</span>'
+        f'</div>'
+        f'{badge_note}',
+        unsafe_allow_html=True,
+    )
+
+    plot_col, stats_col = st.columns([2, 1])
+
+    # --- Boxplot ---
+    with plot_col:
+        r_data = resp_vals[pct_col]
+        nr_data = nonresp_vals[pct_col]
         fig = go.Figure()
 
-        def make_box_with_hover(data, name, color, x_pos):
+        for data, name, color in [
+            (r_data, "Responder", C["teal"]),
+            (nr_data, "Non-Responder", C["coral"]),
+        ]:
             q1 = data.quantile(0.25)
             med = data.median()
             q3 = data.quantile(0.75)
-            mn = data.min()
-            mx = data.max()
+            mn, mx = data.min(), data.max()
 
             fig.add_trace(go.Box(
                 y=data, name=name,
                 marker_color=color, fillcolor=color,
                 line_color=color, opacity=0.7,
-                boxmean=False,
-                hoverinfo="skip",
+                boxmean=False, hoverinfo="skip",
             ))
-            # Invisible scatter at median for clean hover
             fig.add_trace(go.Scatter(
                 x=[name], y=[med],
                 mode="markers",
@@ -382,20 +516,34 @@ for i, pop in enumerate(POPULATIONS):
                 ),
             ))
 
-        make_box_with_hover(resp_data, "Responder", C["teal"], 0)
-        make_box_with_hover(nonresp_data, "Non-Responder", C["coral"], 1)
-
-        sig_color = C["teal"] if pval < 0.05 else C["muted"]
-        sig_text = f"p = {pval:.4f} *" if pval < 0.05 else f"p = {pval:.4f}"
+        # Significance annotation on plot
+        annotations = []
+        if is_sig_raw or is_sig_bh:
+            star_text = "**" if is_sig_bh else "*"
+            y_max = max(r_data.max(), nr_data.max())
+            annotations.append(dict(
+                text=star_text,
+                x=0.5, y=y_max * 1.05,
+                xref="paper", yref="y",
+                showarrow=False,
+                font=dict(color=sig_color, size=24, family="Arial Black"),
+            ))
+            # Bracket line between the two boxes
+            annotations.append(dict(
+                text=f"p = {res['p_raw']:.4f}",
+                x=0.5, y=y_max * 1.10,
+                xref="paper", yref="y",
+                showarrow=False,
+                font=dict(color=sig_color, size=11, family="monospace"),
+            ))
 
         fig.update_layout(
-            title=dict(text=label, font=dict(color=C["text"], size=15)),
             paper_bgcolor=C["bg"],
             plot_bgcolor=C["card"],
             font=dict(color=C["text2"], size=11),
             showlegend=False,
-            height=350,
-            margin=dict(l=50, r=20, t=60, b=40),
+            height=320,
+            margin=dict(l=50, r=20, t=50, b=40),
             hoverlabel=dict(
                 bgcolor=C["card"],
                 bordercolor=C["border"],
@@ -407,41 +555,61 @@ for i, pop in enumerate(POPULATIONS):
                 zerolinecolor=C["border"],
             ),
             xaxis=dict(gridcolor=C["border"]),
-            annotations=[dict(
-                text=sig_text, xref="paper", yref="paper",
-                x=0.5, y=1.0, showarrow=False,
-                font=dict(color=sig_color, size=12, family="monospace"),
-            )],
+            annotations=annotations,
         )
         st.plotly_chart(fig, use_container_width=True)
 
-# Stats table
+    # --- Stats panel ---
+    with stats_col:
+        center_label = "Median" if test_type == "Mann-Whitney U" else "Mean"
+        r_center = res["resp_median"] if test_type == "Mann-Whitney U" else res["resp_mean"]
+        nr_center = res["nonresp_median"] if test_type == "Mann-Whitney U" else res["nonresp_mean"]
+
+        st.markdown(
+            f'<div style="background:{C["card"]};border:1px solid {C["border"]};'
+            f'border-radius:8px;padding:16px;margin-top:4px;">'
+            # Test info
+            f'<div style="font-size:11px;color:{C["text2"]};font-weight:600;'
+            f'letter-spacing:0.04em;text-transform:uppercase;margin-bottom:12px;">'
+            f'{test_type}</div>'
+            # Statistic
+            f'<div style="display:flex;justify-content:space-between;margin-bottom:6px;">'
+            f'<span style="color:{C["text2"]};font-size:13px;">Statistic</span>'
+            f'<span style="color:{C["text"]};font-size:13px;font-weight:600;">'
+            f'{res["statistic"]:.2f}</span></div>'
+            # Raw p-value
+            f'<div style="display:flex;justify-content:space-between;margin-bottom:6px;">'
+            f'<span style="color:{C["text2"]};font-size:13px;">p-value (raw)</span>'
+            f'<span style="color:{C["text"]};font-size:13px;font-family:monospace;">'
+            f'{res["p_raw"]:.4f}</span></div>'
+            # Adjusted p-value
+            f'<div style="display:flex;justify-content:space-between;margin-bottom:12px;">'
+            f'<span style="color:{C["text2"]};font-size:13px;">p-value (BH adj.)</span>'
+            f'<span style="color:{sig_color};font-size:13px;font-weight:700;font-family:monospace;">'
+            f'{res["p_adj"]:.4f}{sig_star}</span></div>'
+            # Divider
+            f'<div style="border-top:1px solid {C["border"]};margin:8px 0;"></div>'
+            # Responder center
+            f'<div style="display:flex;justify-content:space-between;margin-bottom:6px;">'
+            f'<span style="color:{C["teal"]};font-size:13px;">Resp. {center_label}</span>'
+            f'<span style="color:{C["teal"]};font-size:13px;font-weight:600;">'
+            f'{r_center:.2f}%</span></div>'
+            # Non-responder center
+            f'<div style="display:flex;justify-content:space-between;">'
+            f'<span style="color:{C["coral"]};font-size:13px;">Non-Resp. {center_label}</span>'
+            f'<span style="color:{C["coral"]};font-size:13px;font-weight:600;">'
+            f'{nr_center:.2f}%</span></div>'
+            f'</div>',
+            unsafe_allow_html=True,
+        )
+
+# --- Methodology footnote ---
 st.markdown(
-    f'<div style="margin-top: 12px; margin-bottom: 8px; color: {C["text2"]}; '
-    f'font-size: 13px; font-weight: 600;">Statistical Results</div>',
-    unsafe_allow_html=True,
-)
-
-display_stats = stat_df[["population_label", "test", "statistic", "p_value", "significant",
-                          "responder_median", "non_responder_median"]].copy()
-display_stats.columns = ["Population", "Test", "Statistic", "p-value", "Significant",
-                          "Responder Median (%)", "Non-Responder Median (%)"]
-
-st.dataframe(
-    display_stats,
-    use_container_width=True,
-    hide_index=True,
-    column_config={
-        "Statistic": st.column_config.NumberColumn(format="%.1f"),
-        "p-value": st.column_config.NumberColumn(format="%.6f"),
-        "Responder Median (%)": st.column_config.NumberColumn(format="%.2f"),
-        "Non-Responder Median (%)": st.column_config.NumberColumn(format="%.2f"),
-    },
-)
-
-st.markdown(
-    f'<div style="color: {C["muted"]}; font-size: 11px; margin-top: 4px;">'
-    f'Mann-Whitney U test (two-sided). Significance threshold: alpha = 0.05.</div>',
+    f'<div style="color:{C["muted"]};font-size:11px;margin-top:16px;">'
+    f'{test_type} (two-sided) with Benjamini-Hochberg FDR correction '
+    f'(threshold = {fdr_threshold:.2f}). '
+    f'Timepoint: {tp_label}. '
+    f'n = {n_resp} responders, {n_nonresp} non-responders.</div>',
     unsafe_allow_html=True,
 )
 

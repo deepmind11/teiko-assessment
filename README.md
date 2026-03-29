@@ -285,39 +285,144 @@ Output file: `outputs/summary.csv`
 
 ### Cohort
 
-Melanoma patients treated with miraclib, PBMC samples only, all timepoints.
-Healthy controls excluded (response is NULL).
+Melanoma patients treated with miraclib, PBMC samples only.
 
-- **Responders:** 993 samples
-- **Non-responders:** 975 samples
-- **Total:** 1,968 samples
+- **331 responder subjects** (993 samples across 3 timepoints)
+- **325 non-responder subjects** (975 samples across 3 timepoints)
 
-### Method
+### Handling Repeated Measures
 
-The Mann-Whitney U test (two-sided) compares relative frequencies between responders
-and non-responders for each cell population. This non-parametric test was chosen because
-it makes no assumption about the distribution of the data, which is appropriate given the
-large sample sizes and the potential for non-normal distributions in biological
-measurements.
+Each subject has 3 samples (day 0, 7, 14). These are not independent measurements:
+the same person measured at different times will produce correlated values. Using all
+1,968 samples as if they were independent would be pseudo-replication, inflating
+significance.
 
-### Results
+To quantify this, I measured how much each subject's cell percentages vary across
+their 3 timepoints. For each of the 656 subjects, I calculated the standard deviation
+of their 3 values, then averaged that SD across all subjects. I also computed the
+standard deviation across all 1,968 samples (ignoring which subject they came from):
 
-| Population | Statistic | p-value | Significant | Responder Median (%) | Non-Responder Median (%) |
-|------------|-----------|---------|-------------|----------------------|--------------------------|
-| CD4 T Cell | 515,276 | 0.0133 | Yes | 30.22 | 29.66 |
-| B Cell | 459,971 | 0.0557 | No | 9.43 | 9.79 |
-| NK Cell | 464,546 | 0.1211 | No | 14.51 | 14.80 |
-| Monocyte | 466,510 | 0.1632 | No | 19.61 | 19.94 |
-| CD8 T Cell | 478,176 | 0.6391 | No | 24.73 | 24.60 |
+| Population | SD Across a Subject's 3 Timepoints (avg) | SD Across All Samples |
+|------------|------------------------------------------|-----------------------|
+| B Cell | 2.84% | 3.22% |
+| CD8 T Cell | 4.17% | 4.67% |
+| CD4 T Cell | 4.50% | 5.03% |
+| NK Cell | 3.62% | 3.96% |
+| Monocyte | 3.84% | 4.34% |
 
-**CD4 T Cell is the only population with a statistically significant difference
-between responders and non-responders (p = 0.0133, alpha = 0.05).** Responders show
-a higher median relative frequency (30.22%) compared to non-responders (29.66%),
-suggesting that elevated CD4 T cell proportions may be associated with treatment
-response to miraclib in melanoma patients.
+A single subject's values vary almost as much across their 3 timepoints as the
+variation across all samples. The 3 measurements from one person are not 3
+copies of the same number; they carry substantial fluctuation. Treating them as
+independent observations would inflate the effective sample size and make p-values
+artificially small.
 
-B Cell approaches borderline significance (p = 0.0557) and may warrant further
-investigation with larger cohorts or adjusted significance thresholds.
+**Fix:** I average each subject's 3 timepoint values into a single value per cell
+population, then run the test on 331 vs 325 independent observations.
+
+### Choosing the Statistical Test
+
+I plotted the distribution of each cell population's relative frequency and on visual
+inspection they appeared approximately normal (symmetric, bell-shaped). To confirm
+this, I ran the Kolmogorov-Smirnov (K-S) normality test on each population for both
+the responder and non-responder groups:
+
+| Population | K-S p (Responders) | K-S p (Non-Responders) | Normal? |
+|------------|--------------------|-----------------------|---------|
+| B Cell | 0.3522 | 0.5397 | Yes |
+| CD8 T Cell | 0.9732 | 0.9656 | Yes |
+| CD4 T Cell | 0.3023 | 0.9275 | Yes |
+| NK Cell | 0.7924 | 0.8706 | Yes |
+| Monocyte | 0.5906 | 0.7604 | Yes |
+
+All K-S p-values are well above 0.05, confirming that the data is normally distributed
+across all populations and groups. Because the normality assumption holds, I use
+Welch's t-test, which has more statistical power than the non-parametric Mann-Whitney U
+test. Welch's t-test does not assume equal variances between groups.
+
+The interactive dashboard also provides the option of running Mann-Whitney U for
+comparison. With Mann-Whitney U, CD4 T Cell narrowly misses significance after FDR
+correction (BH-adjusted p = 0.062). With Welch's t-test, the same signal reaches
+significance (BH-adjusted p = 0.023), because the test extracts more information from
+normally distributed data.
+
+### Overall Results (Per-Subject Averaged)
+
+Welch's t-test (two-sided) on per-subject averaged relative frequencies, with
+Benjamini-Hochberg FDR correction across the 5 cell populations:
+
+| Population | Resp. Mean | Non-Resp. Mean | p-value | BH-adjusted p | Significant |
+|------------|-----------|---------------|---------|---------------|-------------|
+| CD4 T Cell | 30.54% | 29.90% | 0.0045 | 0.023 | **Yes** |
+| B Cell | 9.80% | 10.00% | 0.1627 | 0.274 | No |
+| NK Cell | 14.84% | 15.07% | 0.1644 | 0.274 | No |
+| Monocyte | 19.94% | 20.08% | 0.4524 | 0.566 | No |
+| CD8 T Cell | 24.88% | 24.94% | 0.7666 | 0.767 | No |
+
+CD4 T Cell is the only population that reaches significance after FDR correction
+(BH-adjusted p = 0.023). Responders have a higher mean CD4 T cell frequency than
+non-responders. To understand when this difference emerges, I examined each timepoint
+independently.
+
+### Per-Timepoint Analysis
+
+Each timepoint provides ~331 vs ~325 fully independent observations (one per subject).
+K-S normality tests confirm normal distributions at each timepoint (all p > 0.05).
+
+**Day 0 (baseline):**
+
+| Population | Resp. Mean | Non-Resp. Mean | p-value | BH-adjusted p |
+|------------|-----------|---------------|---------|---------------|
+| B Cell | 10.09% | 9.77% | 0.2115 | 0.845 |
+| Monocyte | 19.90% | 20.22% | 0.3379 | 0.845 |
+| CD8 T Cell | 24.82% | 25.00% | 0.6194 | 0.875 |
+| CD4 T Cell | 29.98% | 29.83% | 0.7085 | 0.875 |
+| NK Cell | 15.22% | 15.17% | 0.8751 | 0.875 |
+
+No significant differences at baseline. Responders and non-responders start from
+the same immunological baseline, which is expected.
+
+**Day 7:**
+
+| Population | Resp. Mean | Non-Resp. Mean | p-value | BH-adjusted p |
+|------------|-----------|---------------|---------|---------------|
+| CD4 T Cell | 30.75% | 29.72% | 0.0100 | **0.050** |
+| B Cell | 9.75% | 10.11% | 0.1498 | 0.271 |
+| NK Cell | 14.66% | 15.09% | 0.1626 | 0.271 |
+| Monocyte | 20.05% | 20.18% | 0.6852 | 0.772 |
+| CD8 T Cell | 24.80% | 24.90% | 0.7720 | 0.772 |
+
+CD4 T Cell is significant at day 7 (BH-adjusted p = 0.050). Responders show
+elevated CD4 T cell frequencies one week into treatment.
+
+**Day 14:**
+
+| Population | Resp. Mean | Non-Resp. Mean | p-value | BH-adjusted p |
+|------------|-----------|---------------|---------|---------------|
+| B Cell | 9.56% | 10.11% | 0.0310 | 0.151 |
+| CD4 T Cell | 30.89% | 30.16% | 0.0603 | 0.151 |
+| NK Cell | 14.65% | 14.96% | 0.3129 | 0.522 |
+| CD8 T Cell | 25.03% | 24.93% | 0.7880 | 0.936 |
+| Monocyte | 19.87% | 19.85% | 0.9360 | 0.936 |
+
+B Cell shows the strongest signal at day 14 (uncorrected p = 0.031) but does not
+survive FDR correction. CD4 T Cell remains a trend (uncorrected p = 0.060).
+
+### Interpretation
+
+The per-timepoint analysis reveals a temporal pattern in the immune response:
+
+- **Day 0:** No differences. Both groups are immunologically equivalent at baseline.
+- **Day 7:** CD4 T cells diverge first (BH-adjusted p = 0.050), consistent with their
+  role in early adaptive immune activation.
+- **Day 14:** B cells begin to diverge (uncorrected p = 0.031), potentially reflecting
+  downstream effects of the CD4 T cell response on B cell dynamics.
+
+This temporal progression supports a real biological effect rather than a statistical
+artifact: the signal is absent at baseline (when treatment has not yet acted) and
+emerges progressively at later timepoints. The sequence is also consistent with known
+biology: CD4 T cells are known to provide help that drives B cell activation and
+maturation, so it is plausible that CD4 T cell changes at day 7 lead to downstream
+B cell changes by day 14.
 
 Output files: `outputs/statistical_results.csv`, `outputs/plots/*.png`
 

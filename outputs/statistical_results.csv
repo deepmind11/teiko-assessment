@@ -1,6 +1,6 @@
-population,population_label,test,statistic,p_value,significant,responder_median,non_responder_median
-cd4_t_cell,CD4 T Cell,Mann-Whitney U,515276.0,0.013344,True,30.22,29.66
-b_cell,B Cell,Mann-Whitney U,459971.0,0.055702,False,9.43,9.79
-nk_cell,NK Cell,Mann-Whitney U,464546.0,0.121051,False,14.51,14.8
-monocyte,Monocyte,Mann-Whitney U,466510.0,0.16315,False,19.61,19.94
-cd8_t_cell,CD8 T Cell,Mann-Whitney U,478176.0,0.639086,False,24.73,24.6
+population,population_label,test,statistic,p_value,responder_mean,non_responder_mean,n_responders,n_non_responders,ks_responder_p,ks_non_responder_p,p_value_bh,significant
+cd4_t_cell,CD4 T Cell,Welch's t-test,2.8496,0.004515,30.54,29.9,331,325,0.3023,0.9275,0.022575,True
+b_cell,B Cell,Welch's t-test,-1.3976,0.162718,9.8,10.0,331,325,0.3522,0.5397,0.274043,False
+nk_cell,NK Cell,Welch's t-test,-1.3919,0.164426,14.84,15.07,331,325,0.7924,0.8706,0.274043,False
+monocyte,Monocyte,Welch's t-test,-0.7519,0.452375,19.94,20.08,331,325,0.5906,0.7604,0.565469,False
+cd8_t_cell,CD8 T Cell,Welch's t-test,-0.297,0.766572,24.88,24.94,331,325,0.9732,0.9656,0.766572,False

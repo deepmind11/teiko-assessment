@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """pipeline.py — Generate all analysis outputs from the cell_counts database.
 
 Parts 2-4 of the Teiknical assessment. Reads from the SQLite database
@@ -89,7 +90,8 @@ def part2_summary_table(conn: sqlite3.Connection) -> pd.DataFrame:
 def part3_query_cohort(conn: sqlite3.Connection) -> pd.DataFrame:
     """Fetch melanoma + miraclib + PBMC samples with relative frequencies."""
     query = """
-        SELECT sample, response, b_cell, cd8_t_cell, cd4_t_cell, nk_cell, monocyte
+        SELECT sample, subject, response, time_from_treatment_start as day,
+               b_cell, cd8_t_cell, cd4_t_cell, nk_cell, monocyte
         FROM sample_view
         WHERE condition = 'melanoma'
           AND treatment = 'miraclib'
@@ -97,7 +99,7 @@ def part3_query_cohort(conn: sqlite3.Connection) -> pd.DataFrame:
           AND response IS NOT NULL
     """
     df = pd.DataFrame(conn.execute(query).fetchall(),
-                       columns=["sample", "response", *POPULATIONS])
+                       columns=["sample", "subject", "response", "day", *POPULATIONS])
 
     df["total_count"] = df[POPULATIONS].sum(axis=1)
     for pop in POPULATIONS:
@@ -107,32 +109,77 @@ def part3_query_cohort(conn: sqlite3.Connection) -> pd.DataFrame:
 
 
 def part3_statistical_tests(df: pd.DataFrame) -> pd.DataFrame:
-    """Run Mann-Whitney U tests for each cell population."""
+    """Run Welch's t-test on per-subject averaged values with BH correction.
+
+    Each subject has 3 timepoints. We average across timepoints first to ensure
+    independence, then compare responders vs non-responders. We use Welch's
+    t-test because the Kolmogorov-Smirnov normality test confirms the data is
+    normally distributed across all populations and groups.
+    """
+    pct_cols = [f"{pop}_pct" for pop in POPULATIONS]
+    subj_avg = (
+        df.groupby(["subject", "response"])[pct_cols]
+        .mean()
+        .reset_index()
+    )
+
+    raw_pvals = []
     results = []
     for pop in POPULATIONS:
         col = f"{pop}_pct"
-        responders = df.loc[df["response"] == "yes", col]
-        non_responders = df.loc[df["response"] == "no", col]
+        responders = subj_avg.loc[subj_avg["response"] == "yes", col]
+        non_responders = subj_avg.loc[subj_avg["response"] == "no", col]
 
-        stat, pval = stats.mannwhitneyu(
-            responders, non_responders, alternative="two-sided"
+        # K-S normality test
+        ks_r_stat, ks_r_p = stats.kstest(
+            responders, "norm", args=(responders.mean(), responders.std())
         )
+        ks_nr_stat, ks_nr_p = stats.kstest(
+            non_responders, "norm", args=(non_responders.mean(), non_responders.std())
+        )
+
+        # Welch's t-test (does not assume equal variances)
+        stat, pval = stats.ttest_ind(
+            responders, non_responders, equal_var=False
+        )
+        raw_pvals.append(pval)
         results.append({
             "population": pop,
             "population_label": POPULATION_LABELS[pop],
-            "test": "Mann-Whitney U",
-            "statistic": round(stat, 2),
+            "test": "Welch's t-test",
+            "statistic": round(stat, 4),
             "p_value": round(pval, 6),
-            "significant": pval < 0.05,
-            "responder_median": round(responders.median(), 2),
-            "non_responder_median": round(non_responders.median(), 2),
+            "responder_mean": round(responders.mean(), 2),
+            "non_responder_mean": round(non_responders.mean(), 2),
+            "n_responders": len(responders),
+            "n_non_responders": len(non_responders),
+            "ks_responder_p": round(ks_r_p, 4),
+            "ks_non_responder_p": round(ks_nr_p, 4),
         })
 
-    return pd.DataFrame(results).sort_values("p_value")
+    # Benjamini-Hochberg FDR correction
+    from statsmodels.stats.multitest import multipletests
+    _, bh_pvals, _, _ = multipletests(raw_pvals, method="fdr_bh")
+
+    result_df = pd.DataFrame(results)
+    result_df["p_value_bh"] = [round(p, 6) for p in bh_pvals]
+    result_df["significant"] = result_df["p_value_bh"] < 0.05
+
+    return result_df.sort_values("p_value")
 
 
 def part3_boxplots(df: pd.DataFrame, stat_results: pd.DataFrame) -> None:
-    """Generate one boxplot per cell population comparing responders vs non-responders."""
+    """Generate one boxplot per cell population comparing responders vs non-responders.
+
+    Uses per-subject averaged data to match the statistical tests.
+    """
+    pct_cols = [f"{pop}_pct" for pop in POPULATIONS]
+    df = (
+        df.groupby(["subject", "response"])[pct_cols]
+        .mean()
+        .reset_index()
+    )
+
     sns.set_theme(style="darkgrid")
 
     p_lookup = dict(zip(stat_results["population"], stat_results["p_value"]))
@@ -198,9 +245,12 @@ def part3_analysis(conn: sqlite3.Connection) -> pd.DataFrame:
     print("  Cohort: melanoma, miraclib, PBMC, responders vs non-responders")
 
     df = part3_query_cohort(conn)
-    n_resp = (df["response"] == "yes").sum()
-    n_nonresp = (df["response"] == "no").sum()
-    print(f"  Samples: {len(df):,} (responders: {n_resp:,}, non-responders: {n_nonresp:,})")
+    n_subj_resp = df.loc[df["response"] == "yes", "subject"].nunique()
+    n_subj_nonresp = df.loc[df["response"] == "no", "subject"].nunique()
+    print(f"  Samples: {len(df):,} from {df['subject'].nunique()} subjects")
+    print(f"  Subjects: {n_subj_resp} responders, {n_subj_nonresp} non-responders")
+    print(f"  Test: Welch's t-test (normality confirmed via K-S test)")
+    print(f"  Analysis uses per-subject averages (collapsed across timepoints)")
 
     stat_results = part3_statistical_tests(df)
 

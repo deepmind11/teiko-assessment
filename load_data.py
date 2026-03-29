@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """load_data.py — Initialize SQLite database and load cell-count.csv."""
 
 import csv
