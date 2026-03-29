@@ -296,10 +296,10 @@ def _render_combined_boxplot(df: pd.DataFrame, raw_p: dict, bh_p: dict,
         ax.text(
             0.5, 0.97, f"BH p = {bh_pval:.4f}{sig_marker}",
             transform=ax.transAxes, ha="center", va="top",
-            fontsize=11, color=sig_color, fontweight="bold",
+            fontsize=13, color=sig_color, fontweight="bold",
         )
 
-        ax.tick_params(colors=COLORS["text_secondary"], labelsize=10)
+        ax.tick_params(colors=COLORS["text_secondary"], labelsize=12)
         ax.yaxis.set_major_formatter(mticker.FormatStrFormatter("%.1f"))
         for spine in ax.spines.values():
             spine.set_color(COLORS["grid"])
