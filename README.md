@@ -424,9 +424,8 @@ make dashboard    # Starts at http://localhost:8501
 
 ### Features
 
-- **Part 2 explorer:** Filterable summary table with checkbox filters (with Select All
-  toggle) for project, condition, treatment, timepoint, and population. Filtered CSV
-  download.
+- **Part 2 explorer:** Filterable summary table with checkbox filters for project,
+  condition, treatment, timepoint, and population. Filtered CSV download.
 - **Part 3 analysis:** Responder vs. non-responder comparison for any condition,
   treatment, and sample type combination. Controls for statistical test (Welch's t-test
   or Mann-Whitney U), timepoint (individual days or per-subject average), and FDR
