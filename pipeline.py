@@ -232,9 +232,9 @@ def _render_combined_boxplot(df: pd.DataFrame, raw_p: dict, bh_p: dict,
                              out_path: Path, title: str = "") -> None:
     """Render all 5 populations in a 3+2 grid with three-tier significance."""
     sns.set_theme(style="darkgrid")
-    fig = plt.figure(figsize=(26, 13))
+    fig = plt.figure(figsize=(15, 10))
     fig.patch.set_facecolor(COLORS["bg"])
-    gs = fig.add_gridspec(2, 6, hspace=0.35, wspace=0.4)
+    gs = fig.add_gridspec(2, 6, hspace=0.45, wspace=0.5)
 
     # 3 on top, 2 centered on bottom
     axes = [
@@ -246,8 +246,8 @@ def _render_combined_boxplot(df: pd.DataFrame, raw_p: dict, bh_p: dict,
     ]
 
     if title:
-        fig.suptitle(title, color=COLORS["text"], fontsize=20, fontweight="bold",
-                     y=0.98)
+        fig.suptitle(title, color=COLORS["text"], fontsize=24, fontweight="bold",
+                     y=1.0)
 
     palette = {"Responder": COLORS["teal"], "Non-Responder": COLORS["coral"]}
 
@@ -276,11 +276,12 @@ def _render_combined_boxplot(df: pd.DataFrame, raw_p: dict, bh_p: dict,
             order=["Responder", "Non-Responder"],
         )
 
-        ax.set_title(label, color=COLORS["text"], fontsize=15, fontweight="bold",
+        ax.set_title(label, color=COLORS["text"], fontsize=18, fontweight="bold",
                      pad=10)
         ax.set_xlabel("")
-        ax.set_ylabel("Relative Freq. (%)" if pop == POPULATIONS[0] else "",
-                      color=COLORS["text_secondary"], fontsize=11)
+        show_ylabel = pop in (POPULATIONS[0], POPULATIONS[3])  # first of each row
+        ax.set_ylabel("Relative Freq. (%)" if show_ylabel else "",
+                      color=COLORS["text_secondary"], fontsize=14)
 
         # Three-tier significance coloring
         if bh_pval < 0.05:
@@ -296,10 +297,10 @@ def _render_combined_boxplot(df: pd.DataFrame, raw_p: dict, bh_p: dict,
         ax.text(
             0.5, 0.97, f"BH p = {bh_pval:.4f}{sig_marker}",
             transform=ax.transAxes, ha="center", va="top",
-            fontsize=13, color=sig_color, fontweight="bold",
+            fontsize=16, color=sig_color, fontweight="bold",
         )
 
-        ax.tick_params(colors=COLORS["text_secondary"], labelsize=12)
+        ax.tick_params(colors=COLORS["text_secondary"], labelsize=14)
         ax.yaxis.set_major_formatter(mticker.FormatStrFormatter("%.1f"))
         for spine in ax.spines.values():
             spine.set_color(COLORS["grid"])
@@ -310,18 +311,17 @@ def _render_combined_boxplot(df: pd.DataFrame, raw_p: dict, bh_p: dict,
     from matplotlib.lines import Line2D
     legend_elements = [
         Line2D([0], [0], marker="s", color="none", markerfacecolor=COLORS["teal"],
-               markersize=8, label="** Significant (BH-adjusted p < 0.05)"),
+               markersize=10, label="** Significant (BH-adjusted p < 0.05)"),
         Line2D([0], [0], marker="s", color="none", markerfacecolor="#FBBF24",
-               markersize=8, label="*  Significant before correction only"),
+               markersize=10, label="*  Significant before correction only"),
         Line2D([0], [0], marker="s", color="none", markerfacecolor=COLORS["text_secondary"],
-               markersize=8, label="   Not significant"),
+               markersize=10, label="   Not significant"),
     ]
     fig.legend(handles=legend_elements, loc="lower center", ncol=3,
-               frameon=False, fontsize=12,
+               frameon=False, fontsize=14,
                labelcolor=COLORS["text_secondary"],
-               bbox_to_anchor=(0.5, -0.06), columnspacing=4.0)
+               bbox_to_anchor=(0.5, -0.04), columnspacing=3.0)
 
-    fig.tight_layout()
     fig.savefig(out_path, dpi=300, facecolor=COLORS["bg"], bbox_inches="tight")
     plt.close(fig)
 
