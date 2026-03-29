@@ -224,7 +224,7 @@ def _render_boxplot(df: pd.DataFrame, p_lookup: dict, out_dir: Path,
         ax.grid(axis="x", visible=False)
 
         fig.tight_layout()
-        fig.savefig(out_dir / f"{pop}.png", dpi=150, facecolor=COLORS["bg"])
+        fig.savefig(out_dir / f"{pop}.png", dpi=300, facecolor=COLORS["bg"])
         plt.close(fig)
 
 
@@ -322,7 +322,7 @@ def _render_combined_boxplot(df: pd.DataFrame, raw_p: dict, bh_p: dict,
                bbox_to_anchor=(0.5, -0.06), columnspacing=4.0)
 
     fig.tight_layout()
-    fig.savefig(out_path, dpi=150, facecolor=COLORS["bg"], bbox_inches="tight")
+    fig.savefig(out_path, dpi=300, facecolor=COLORS["bg"], bbox_inches="tight")
     plt.close(fig)
 
 
