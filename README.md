@@ -374,15 +374,14 @@ The per-timepoint analysis reveals a temporal pattern in the immune response:
 - **Day 0:** No differences. Both groups are immunologically equivalent at baseline.
 - **Day 7:** CD4 T cells diverge first (BH-adjusted p = 0.050), consistent with their
   role in early adaptive immune activation.
-- **Day 14:** B cells begin to diverge (uncorrected p = 0.031), potentially reflecting
-  downstream effects of the CD4 T cell response on B cell dynamics.
+- **Day 14:** B cells begin to diverge (uncorrected p = 0.031). Interestingly, the
+  direction is opposite to CD4 T cells: responders show *lower* B cell relative
+  frequency (9.56% vs 10.11%). This is worth noting but does not survive FDR
+  correction.
 
 This temporal progression supports a real biological effect rather than a statistical
 artifact: the signal is absent at baseline (when treatment has not yet acted) and
-emerges progressively at later timepoints. The sequence is also consistent with known
-biology: CD4 T cells are known to provide help that drives B cell activation and
-maturation, so it is plausible that CD4 T cell changes at day 7 lead to downstream
-B cell changes by day 14.
+emerges progressively at later timepoints.
 
 Output files: `outputs/statistical_results.csv`, `outputs/plots/{all_timepoints,day_0,day_7,day_14}/`
 
