@@ -255,14 +255,13 @@ projects_list, conditions_list, treatments_list, sample_types_list = load_filter
 
 def filter_column(label: str, options: list, key_prefix: str,
                   format_fn=None) -> list:
-    """Render a filter column with a Select All toggle and per-item checkboxes."""
+    """Render a filter column with per-item checkboxes (all checked by default)."""
     st.markdown(f'<span style="font-size:12px;color:{C["text2"]};font-weight:600;">{label}</span>',
                 unsafe_allow_html=True)
-    all_on = st.checkbox("All", value=True, key=f"{key_prefix}_all")
     selected = []
     for opt in options:
         display = format_fn(opt) if format_fn else str(opt)
-        if st.checkbox(display, value=all_on, key=f"{key_prefix}_{opt}"):
+        if st.checkbox(display, value=True, key=f"{key_prefix}_{opt}"):
             selected.append(opt)
     return selected
 
