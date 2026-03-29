@@ -434,7 +434,6 @@ make dashboard    # Starts at http://localhost:8501
 - **Part 4 breakdown:** Cohort breakdown by project, response, and sex for any
   condition, treatment, sample type, and timepoint. Computed live from the database.
   Defaults: melanoma, miraclib, PBMC, day 0.
-
 ## Code Design
 
 The project separates concerns into three scripts:

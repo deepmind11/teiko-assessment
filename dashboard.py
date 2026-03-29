@@ -734,10 +734,6 @@ else:
 
 st.markdown(f"""
 <div class="footer">
-    Methodology: Statistical comparisons use the Mann-Whitney U test (two-sided, alpha = 0.05).
-    Relative frequencies calculated as (population count / total count) x 100 for each sample.
-    Database: SQLite with normalized schema (3NF).
-    <br>
     Data source: cell-count.csv &bull; {n_samples:,} samples &bull; {n_subjects:,} subjects &bull; {n_projects} projects
 </div>
 """, unsafe_allow_html=True)
