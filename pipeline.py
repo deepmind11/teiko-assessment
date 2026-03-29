@@ -230,14 +230,24 @@ def _render_boxplot(df: pd.DataFrame, p_lookup: dict, out_dir: Path,
 
 def _render_combined_boxplot(df: pd.DataFrame, raw_p: dict, bh_p: dict,
                              out_path: Path, title: str = "") -> None:
-    """Render all 5 populations in a single row of subplots with three-tier significance."""
+    """Render all 5 populations in a 3+2 grid with three-tier significance."""
     sns.set_theme(style="darkgrid")
-    fig, axes = plt.subplots(1, 5, figsize=(22, 5.5))
+    fig = plt.figure(figsize=(26, 13))
     fig.patch.set_facecolor(COLORS["bg"])
+    gs = fig.add_gridspec(2, 6, hspace=0.35, wspace=0.4)
+
+    # 3 on top, 2 centered on bottom
+    axes = [
+        fig.add_subplot(gs[0, 0:2]),
+        fig.add_subplot(gs[0, 2:4]),
+        fig.add_subplot(gs[0, 4:6]),
+        fig.add_subplot(gs[1, 1:3]),
+        fig.add_subplot(gs[1, 3:5]),
+    ]
 
     if title:
-        fig.suptitle(title, color=COLORS["text"], fontsize=18, fontweight="bold",
-                     y=1.02)
+        fig.suptitle(title, color=COLORS["text"], fontsize=20, fontweight="bold",
+                     y=0.98)
 
     palette = {"Responder": COLORS["teal"], "Non-Responder": COLORS["coral"]}
 

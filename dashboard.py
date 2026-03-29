@@ -442,171 +442,172 @@ if has_cohort:
         test_results[pop]["p_adj"] = bh_pvals[i]
         test_results[pop]["significant"] = bh_pvals[i] < fdr_threshold
 
-    # --- Render 5 population sub-blocks ---
-    for pop in POPULATIONS:
-        label = POPULATION_LABELS[pop]
-        res = test_results[pop]
-        pct_col = f"{pop}_pct"
+    # --- Render 5 population sub-blocks, 2 per row ---
+    for row_start in range(0, len(POPULATIONS), 2):
+        row_pops = POPULATIONS[row_start:row_start + 2]
+        row_cols = st.columns(2)
 
-        is_sig_bh = res["significant"]
-        is_sig_raw = res["p_raw"] < fdr_threshold
+        for col_container, pop in zip(row_cols, row_pops):
+            with col_container:
+                label = POPULATION_LABELS[pop]
+                res = test_results[pop]
+                pct_col = f"{pop}_pct"
 
-        if is_sig_bh:
-            sig_color = C["teal"]
-            sig_star = " **"
-            badge_bg = C["teal"]
-            badge_text = "SIGNIFICANT"
-            badge_note = ""
-            border_color = C["teal"]
-        elif is_sig_raw:
-            sig_color = C["amber"]
-            sig_star = " *"
-            badge_bg = C["amber"]
-            badge_text = "SIGNIFICANT BEFORE CORRECTION"
-            badge_note = (
-                f'<div style="font-size:11px;color:{C["amber"]};margin-top:4px;">'
-                f'Raw p = {res["p_raw"]:.4f} is significant, but does not survive '
-                f'FDR correction (BH adj. p = {res["p_adj"]:.4f}).</div>'
-            )
-            border_color = C["amber"]
-        else:
-            sig_color = C["muted"]
-            sig_star = ""
-            badge_bg = C["border"]
-            badge_text = "NOT SIGNIFICANT"
-            badge_note = ""
-            border_color = C["border"]
+                is_sig_bh = res["significant"]
+                is_sig_raw = res["p_raw"] < fdr_threshold
 
-        # Sub-block header with significance badge
-        st.markdown(
-            f'<div style="display:flex;align-items:center;gap:12px;margin-top:28px;margin-bottom:4px;'
-            f'padding-bottom:8px;border-bottom:2px solid {border_color};">'
-            f'<span style="font-size:17px;font-weight:700;color:{C["text"]};">{label}</span>'
-            f'<span style="font-size:10px;font-weight:700;letter-spacing:0.06em;'
-            f'background:{badge_bg};color:{C["bg"]};padding:3px 10px;border-radius:4px;">'
-            f'{badge_text}</span>'
-            f'</div>'
-            f'{badge_note}',
-            unsafe_allow_html=True,
-        )
+                if is_sig_bh:
+                    sig_color = C["teal"]
+                    sig_star = " **"
+                    badge_bg = C["teal"]
+                    badge_text = "SIGNIFICANT"
+                    badge_note = ""
+                    border_color = C["teal"]
+                elif is_sig_raw:
+                    sig_color = C["amber"]
+                    sig_star = " *"
+                    badge_bg = C["amber"]
+                    badge_text = "SIGNIFICANT BEFORE CORRECTION"
+                    badge_note = (
+                        f'<div style="font-size:11px;color:{C["amber"]};margin-top:4px;">'
+                        f'Raw p = {res["p_raw"]:.4f} is significant, but does not survive '
+                        f'FDR correction (BH adj. p = {res["p_adj"]:.4f}).</div>'
+                    )
+                    border_color = C["amber"]
+                else:
+                    sig_color = C["muted"]
+                    sig_star = ""
+                    badge_bg = C["border"]
+                    badge_text = "NOT SIGNIFICANT"
+                    badge_note = ""
+                    border_color = C["border"]
 
-        plot_col, stats_col = st.columns([2, 1])
+                # Sub-block header with significance badge
+                st.markdown(
+                    f'<div style="display:flex;align-items:center;gap:12px;margin-top:28px;margin-bottom:4px;'
+                    f'padding-bottom:8px;border-bottom:2px solid {border_color};">'
+                    f'<span style="font-size:17px;font-weight:700;color:{C["text"]};">{label}</span>'
+                    f'<span style="font-size:10px;font-weight:700;letter-spacing:0.06em;'
+                    f'background:{badge_bg};color:{C["bg"]};padding:3px 10px;border-radius:4px;">'
+                    f'{badge_text}</span>'
+                    f'</div>'
+                    f'{badge_note}',
+                    unsafe_allow_html=True,
+                )
 
-        # --- Boxplot ---
-        with plot_col:
-            r_data = resp_vals[pct_col]
-            nr_data = nonresp_vals[pct_col]
-            fig = go.Figure()
+                # --- Boxplot ---
+                r_data = resp_vals[pct_col]
+                nr_data = nonresp_vals[pct_col]
+                fig = go.Figure()
 
-            for data, name, color in [
-                (r_data, "Responder", C["teal"]),
-                (nr_data, "Non-Responder", C["coral"]),
-            ]:
-                q1 = data.quantile(0.25)
-                med = data.median()
-                q3 = data.quantile(0.75)
-                mn, mx = data.min(), data.max()
+                for data, name, color in [
+                    (r_data, "Responder", C["teal"]),
+                    (nr_data, "Non-Responder", C["coral"]),
+                ]:
+                    q1 = data.quantile(0.25)
+                    med = data.median()
+                    q3 = data.quantile(0.75)
+                    mn, mx = data.min(), data.max()
 
-                fig.add_trace(go.Box(
-                    y=data, name=name,
-                    marker_color=color, fillcolor=color,
-                    line_color=color, opacity=0.7,
-                    boxmean=False, hoverinfo="skip",
-                ))
-                fig.add_trace(go.Scatter(
-                    x=[name], y=[med],
-                    mode="markers",
-                    marker=dict(size=30, opacity=0),
+                    fig.add_trace(go.Box(
+                        y=data, name=name,
+                        marker_color=color, fillcolor=color,
+                        line_color=color, opacity=0.7,
+                        boxmean=False, hoverinfo="skip",
+                    ))
+                    fig.add_trace(go.Scatter(
+                        x=[name], y=[med],
+                        mode="markers",
+                        marker=dict(size=30, opacity=0),
+                        showlegend=False,
+                        hovertemplate=(
+                            f"<b>{name}</b><br>"
+                            f"Max: {mx:.1f}<br>"
+                            f"Q3: {q3:.1f}<br>"
+                            f"<span style='color:{color}'>Median: {med:.1f}</span><br>"
+                            f"Q1: {q1:.1f}<br>"
+                            f"Min: {mn:.1f}"
+                            f"<extra></extra>"
+                        ),
+                    ))
+
+                # Significance annotation on plot
+                annotations = []
+                if is_sig_raw or is_sig_bh:
+                    star_text = "**" if is_sig_bh else "*"
+                    y_max = max(r_data.max(), nr_data.max())
+                    annotations.append(dict(
+                        text=star_text,
+                        x=0.5, y=y_max * 1.05,
+                        xref="paper", yref="y",
+                        showarrow=False,
+                        font=dict(color=sig_color, size=24, family="Arial Black"),
+                    ))
+                    annotations.append(dict(
+                        text=f"p = {res['p_raw']:.4f}",
+                        x=0.5, y=y_max * 1.10,
+                        xref="paper", yref="y",
+                        showarrow=False,
+                        font=dict(color=sig_color, size=11, family="monospace"),
+                    ))
+
+                fig.update_layout(
+                    paper_bgcolor=C["bg"],
+                    plot_bgcolor=C["card"],
+                    font=dict(color=C["text2"], size=11),
                     showlegend=False,
-                    hovertemplate=(
-                        f"<b>{name}</b><br>"
-                        f"Max: {mx:.1f}<br>"
-                        f"Q3: {q3:.1f}<br>"
-                        f"<span style='color:{color}'>Median: {med:.1f}</span><br>"
-                        f"Q1: {q1:.1f}<br>"
-                        f"Min: {mn:.1f}"
-                        f"<extra></extra>"
+                    height=300,
+                    margin=dict(l=50, r=20, t=50, b=40),
+                    hoverlabel=dict(
+                        bgcolor=C["card"],
+                        bordercolor=C["border"],
+                        font=dict(color=C["text"], size=12),
                     ),
-                ))
+                    yaxis=dict(
+                        title="Relative Frequency (%)",
+                        gridcolor=C["border"],
+                        zerolinecolor=C["border"],
+                    ),
+                    xaxis=dict(gridcolor=C["border"]),
+                    annotations=annotations,
+                )
+                st.plotly_chart(fig, use_container_width=True)
 
-            # Significance annotation on plot
-            annotations = []
-            if is_sig_raw or is_sig_bh:
-                star_text = "**" if is_sig_bh else "*"
-                y_max = max(r_data.max(), nr_data.max())
-                annotations.append(dict(
-                    text=star_text,
-                    x=0.5, y=y_max * 1.05,
-                    xref="paper", yref="y",
-                    showarrow=False,
-                    font=dict(color=sig_color, size=24, family="Arial Black"),
-                ))
-                annotations.append(dict(
-                    text=f"p = {res['p_raw']:.4f}",
-                    x=0.5, y=y_max * 1.10,
-                    xref="paper", yref="y",
-                    showarrow=False,
-                    font=dict(color=sig_color, size=11, family="monospace"),
-                ))
+                # --- Stats panel ---
+                center_label = "Median" if test_type == "Mann-Whitney U" else "Mean"
+                r_center = res["resp_median"] if test_type == "Mann-Whitney U" else res["resp_mean"]
+                nr_center = res["nonresp_median"] if test_type == "Mann-Whitney U" else res["nonresp_mean"]
 
-            fig.update_layout(
-                paper_bgcolor=C["bg"],
-                plot_bgcolor=C["card"],
-                font=dict(color=C["text2"], size=11),
-                showlegend=False,
-                height=320,
-                margin=dict(l=50, r=20, t=50, b=40),
-                hoverlabel=dict(
-                    bgcolor=C["card"],
-                    bordercolor=C["border"],
-                    font=dict(color=C["text"], size=12),
-                ),
-                yaxis=dict(
-                    title="Relative Frequency (%)",
-                    gridcolor=C["border"],
-                    zerolinecolor=C["border"],
-                ),
-                xaxis=dict(gridcolor=C["border"]),
-                annotations=annotations,
-            )
-            st.plotly_chart(fig, use_container_width=True)
-
-        # --- Stats panel ---
-        with stats_col:
-            center_label = "Median" if test_type == "Mann-Whitney U" else "Mean"
-            r_center = res["resp_median"] if test_type == "Mann-Whitney U" else res["resp_mean"]
-            nr_center = res["nonresp_median"] if test_type == "Mann-Whitney U" else res["nonresp_mean"]
-
-            st.markdown(
-                f'<div style="background:{C["card"]};border:1px solid {C["border"]};'
-                f'border-radius:8px;padding:16px;margin-top:4px;">'
-                f'<div style="font-size:11px;color:{C["text2"]};font-weight:600;'
-                f'letter-spacing:0.04em;text-transform:uppercase;margin-bottom:12px;">'
-                f'{test_type}</div>'
-                f'<div style="display:flex;justify-content:space-between;margin-bottom:6px;">'
-                f'<span style="color:{C["text2"]};font-size:13px;">Statistic</span>'
-                f'<span style="color:{C["text"]};font-size:13px;font-weight:600;">'
-                f'{res["statistic"]:.2f}</span></div>'
-                f'<div style="display:flex;justify-content:space-between;margin-bottom:6px;">'
-                f'<span style="color:{C["text2"]};font-size:13px;">p-value (raw)</span>'
-                f'<span style="color:{C["text"]};font-size:13px;font-family:monospace;">'
-                f'{res["p_raw"]:.4f}</span></div>'
-                f'<div style="display:flex;justify-content:space-between;margin-bottom:12px;">'
-                f'<span style="color:{C["text2"]};font-size:13px;">p-value (BH adj.)</span>'
-                f'<span style="color:{sig_color};font-size:13px;font-weight:700;font-family:monospace;">'
-                f'{res["p_adj"]:.4f}{sig_star}</span></div>'
-                f'<div style="border-top:1px solid {C["border"]};margin:8px 0;"></div>'
-                f'<div style="display:flex;justify-content:space-between;margin-bottom:6px;">'
-                f'<span style="color:{C["teal"]};font-size:13px;">Resp. {center_label}</span>'
-                f'<span style="color:{C["teal"]};font-size:13px;font-weight:600;">'
-                f'{r_center:.2f}%</span></div>'
-                f'<div style="display:flex;justify-content:space-between;">'
-                f'<span style="color:{C["coral"]};font-size:13px;">Non-Resp. {center_label}</span>'
-                f'<span style="color:{C["coral"]};font-size:13px;font-weight:600;">'
-                f'{nr_center:.2f}%</span></div>'
-                f'</div>',
-                unsafe_allow_html=True,
-            )
+                st.markdown(
+                    f'<div style="background:{C["card"]};border:1px solid {C["border"]};'
+                    f'border-radius:8px;padding:16px;margin-top:4px;">'
+                    f'<div style="font-size:11px;color:{C["text2"]};font-weight:600;'
+                    f'letter-spacing:0.04em;text-transform:uppercase;margin-bottom:12px;">'
+                    f'{test_type}</div>'
+                    f'<div style="display:flex;justify-content:space-between;margin-bottom:6px;">'
+                    f'<span style="color:{C["text2"]};font-size:13px;">Statistic</span>'
+                    f'<span style="color:{C["text"]};font-size:13px;font-weight:600;">'
+                    f'{res["statistic"]:.2f}</span></div>'
+                    f'<div style="display:flex;justify-content:space-between;margin-bottom:6px;">'
+                    f'<span style="color:{C["text2"]};font-size:13px;">p-value (raw)</span>'
+                    f'<span style="color:{C["text"]};font-size:13px;font-family:monospace;">'
+                    f'{res["p_raw"]:.4f}</span></div>'
+                    f'<div style="display:flex;justify-content:space-between;margin-bottom:12px;">'
+                    f'<span style="color:{C["text2"]};font-size:13px;">p-value (BH adj.)</span>'
+                    f'<span style="color:{sig_color};font-size:13px;font-weight:700;font-family:monospace;">'
+                    f'{res["p_adj"]:.4f}{sig_star}</span></div>'
+                    f'<div style="border-top:1px solid {C["border"]};margin:8px 0;"></div>'
+                    f'<div style="display:flex;justify-content:space-between;margin-bottom:6px;">'
+                    f'<span style="color:{C["teal"]};font-size:13px;">Resp. {center_label}</span>'
+                    f'<span style="color:{C["teal"]};font-size:13px;font-weight:600;">'
+                    f'{r_center:.2f}%</span></div>'
+                    f'<div style="display:flex;justify-content:space-between;">'
+                    f'<span style="color:{C["coral"]};font-size:13px;">Non-Resp. {center_label}</span>'
+                    f'<span style="color:{C["coral"]};font-size:13px;font-weight:600;">'
+                    f'{nr_center:.2f}%</span></div>'
+                    f'</div>',
+                    unsafe_allow_html=True,
+                )
 
     # --- Methodology footnote ---
     st.markdown(
